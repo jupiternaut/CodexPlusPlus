@@ -170,8 +170,20 @@ async fn activate_existing_codex_app(options: &LaunchOptions) -> anyhow::Result<
         let mut launch_ok = None;
         let mut launch_error = None;
         if should_launch {
+            let mut launch_extra_args = settings.codex_extra_args.clone();
+            if let Some(user_data_dir) = options.user_data_dir.as_deref() {
+                launch_extra_args.push(format!(
+                    "--user-data-dir={}",
+                    user_data_dir.to_string_lossy()
+                ));
+            }
             match hooks
-                .launch_codex(&app_dir, options.debug_port, &settings.codex_extra_args)
+                .launch_codex(
+                    &app_dir,
+                    options.debug_port,
+                    options.macos_new_instance,
+                    &launch_extra_args,
+                )
                 .await
             {
                 Ok(_) => {
@@ -303,6 +315,17 @@ where
                     }
                 }
             }
+            "--macos-new-instance" => {
+                options.macos_new_instance = true;
+            }
+            "--user-data-dir" => {
+                if let Some(value) = iter.next() {
+                    let value = value.as_ref().trim();
+                    if !value.is_empty() {
+                        options.user_data_dir = Some(PathBuf::from(value));
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -360,10 +383,11 @@ impl LaunchHooks for LauncherHooks {
         &self,
         app_dir: &Path,
         debug_port: u16,
+        macos_new_instance: bool,
         extra_args: &[String],
     ) -> anyhow::Result<codex_plus_core::launcher::CodexLaunch> {
         self.core
-            .launch_codex(app_dir, debug_port, extra_args)
+            .launch_codex(app_dir, debug_port, macos_new_instance, extra_args)
             .await
     }
 
@@ -630,6 +654,27 @@ impl BridgeRuntimeService for LauncherRuntimeService {
         Ok(codex_plus_core::model_catalog::read_codex_model_catalog().await)
     }
 
+    async fn agent_context_task_preflight(&self, payload: Value) -> anyhow::Result<Value> {
+        let goal = payload
+            .get("goal")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if goal.is_empty() {
+            return Ok(json!({
+                "status": "failed",
+                "message": "任务目标不能为空。"
+            }));
+        }
+        let preflight = codex_plus_core::agent_context::run_agent_context_task_preflight(&goal)?;
+        serde_json::to_value(preflight).map_err(Into::into)
+    }
+
+    async fn usage_summary(&self) -> anyhow::Result<Value> {
+        codex_plus_core::routes::openusage_summary().await
+    }
+
     async fn ads(&self) -> anyhow::Result<Value> {
         codex_plus_core::ads::fetch_ad_list().await
     }
@@ -833,11 +878,19 @@ mod tests {
             "9333",
             "--helper-port",
             "57322",
+            "--macos-new-instance",
+            "--user-data-dir",
+            "/tmp/codex-plus-smoke",
         ]);
 
         assert_eq!(options.app_dir, Some(PathBuf::from("C:/Codex/App")));
         assert_eq!(options.debug_port, 9333);
         assert_eq!(options.helper_port, 57322);
+        assert!(options.macos_new_instance);
+        assert_eq!(
+            options.user_data_dir,
+            Some(PathBuf::from("/tmp/codex-plus-smoke"))
+        );
     }
 
     #[test]

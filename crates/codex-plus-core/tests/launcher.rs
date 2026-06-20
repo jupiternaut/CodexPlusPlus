@@ -18,6 +18,8 @@ use codex_plus_core::ports::{
 };
 use codex_plus_core::settings::{BackendSettings, RelayProfile, RelayProtocol};
 use codex_plus_core::status::StatusStore;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn app_paths_find_latest_windows_package_prefers_highest_version_app_dir() {
@@ -293,9 +295,10 @@ fn launcher_windows_packaged_process_management_uses_native_api() {
 
 #[test]
 fn launcher_macos_open_command_waits_for_app_exit() {
-    let command = build_macos_open_command(Path::new("/Applications/Codex.app"), 9229, &[]);
+    let command = build_macos_open_command(Path::new("/Applications/Codex.app"), 9229, false, &[]);
 
     assert_eq!(command[0], "open");
+    assert!(!command.contains(&"-n".to_string()));
     assert!(command.contains(&"-W".to_string()));
     assert!(command.contains(&"-a".to_string()));
     assert!(command.contains(&"--args".to_string()));
@@ -305,7 +308,12 @@ fn launcher_macos_open_command_waits_for_app_exit() {
 #[test]
 fn launcher_macos_open_command_appends_extra_codex_arguments_after_args() {
     let extra_args = vec!["--force_high_performance_gpu".to_string()];
-    let command = build_macos_open_command(Path::new("/Applications/Codex.app"), 9229, &extra_args);
+    let command = build_macos_open_command(
+        Path::new("/Applications/Codex.app"),
+        9229,
+        false,
+        &extra_args,
+    );
     let args_index = command
         .iter()
         .position(|part| part == "--args")
@@ -317,6 +325,33 @@ fn launcher_macos_open_command_appends_extra_codex_arguments_after_args() {
             "--remote-debugging-port=9229".to_string(),
             "--remote-allow-origins=http://127.0.0.1:9229".to_string(),
             "--force_high_performance_gpu".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn launcher_macos_open_command_can_request_isolated_new_instance() {
+    let extra_args = vec!["--user-data-dir=/tmp/codex-plus-smoke".to_string()];
+    let command = build_macos_open_command(
+        Path::new("/Applications/Codex.app"),
+        9333,
+        true,
+        &extra_args,
+    );
+    let args_index = command
+        .iter()
+        .position(|part| part == "--args")
+        .expect("macOS command should contain --args");
+
+    assert_eq!(command[0], "open");
+    assert!(command.contains(&"-n".to_string()));
+    assert!(command.contains(&"-W".to_string()));
+    assert_eq!(
+        &command[args_index + 1..],
+        &[
+            "--remote-debugging-port=9333".to_string(),
+            "--remote-allow-origins=http://127.0.0.1:9333".to_string(),
+            "--user-data-dir=/tmp/codex-plus-smoke".to_string(),
         ]
     );
 }
@@ -413,6 +448,103 @@ async fn default_helper_accepts_diagnostic_log_events_over_http() {
 }
 
 #[tokio::test]
+async fn default_helper_serves_agent_context_task_preflight_over_http() {
+    let temp = tempfile::tempdir().unwrap();
+    let agent_context_bin = temp.path().join(if cfg!(windows) {
+        "agent-context.cmd"
+    } else {
+        "agent-context"
+    });
+    write_fake_agent_context_bin(&agent_context_bin);
+    let root = temp.path().join("agent-context-system");
+    std::fs::create_dir_all(&root).unwrap();
+    let config_path = temp.path().join("agent-context-panel.json");
+    let status_path = temp.path().join("agent-context-panel-status.json");
+    let feedback_path = temp.path().join("agent-context-feedback.jsonl");
+    std::fs::write(
+        &config_path,
+        serde_json::json!({
+            "autoContext": true,
+            "scope": "gitProjects",
+            "mode": "fast",
+            "agentContextRoot": root.to_string_lossy(),
+            "agentContextBin": agent_context_bin.to_string_lossy()
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let previous_config =
+        codex_plus_core::paths::set_agent_context_panel_config_path_for_tests(Some(config_path));
+    let previous_status = codex_plus_core::paths::set_agent_context_panel_status_path_for_tests(
+        Some(status_path.clone()),
+    );
+    let previous_feedback =
+        codex_plus_core::paths::set_agent_context_feedback_path_for_tests(Some(feedback_path));
+
+    let hooks = DefaultLaunchHooks::default();
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    hooks.start_helper(port).await.unwrap();
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(format!(
+            "http://127.0.0.1:{port}/agent-context/task-preflight"
+        ))
+        .json(&serde_json::json!({
+            "goal": "开源往事如何在番茄爆火，面向的读者是谁"
+        }))
+        .send()
+        .await
+        .unwrap();
+    hooks.shutdown_helper(port).await;
+
+    codex_plus_core::paths::set_agent_context_panel_config_path_for_tests(previous_config);
+    codex_plus_core::paths::set_agent_context_panel_status_path_for_tests(previous_status);
+    codex_plus_core::paths::set_agent_context_feedback_path_for_tests(previous_feedback);
+
+    assert!(response.status().is_success());
+    let payload: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(payload["status"], "ok");
+    assert_eq!(payload["goal"], "开源往事如何在番茄爆火，面向的读者是谁");
+    assert_eq!(payload["scope"], "gitProjects");
+    assert_eq!(payload["mode"], "fast");
+    assert_eq!(payload["sourcesIncluded"], 4);
+    assert_eq!(payload["codexPreflightMd"], "/tmp/codex_preflight.md");
+    assert_eq!(payload["contextMd"], "/tmp/context.md");
+    assert_eq!(payload["sourcesJsonl"], "/tmp/sources.jsonl");
+
+    let status: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(status_path).unwrap()).unwrap();
+    assert_eq!(status["lastStatus"], "ok");
+    assert_eq!(status["lastCodexPreflightMd"], "/tmp/codex_preflight.md");
+}
+
+fn write_fake_agent_context_bin(path: &Path) {
+    let script = if cfg!(windows) {
+        r#"@echo off
+echo {"status":"ok","goal":"开源往事如何在番茄爆火，面向的读者是谁","source_scope":"gitProjects","mode":"fast","sources_included":4,"preflight_markdown_path":"/tmp/codex_preflight.md","context_md_path":"/tmp/context.md","sources_jsonl_path":"/tmp/sources.jsonl","manifest_json_path":"/tmp/manifest.json","resolution_plan_json_path":"/tmp/resolution_plan.json"}
+"#
+    } else {
+        r#"#!/bin/sh
+cat <<'JSON'
+{"status":"ok","goal":"开源往事如何在番茄爆火，面向的读者是谁","source_scope":"gitProjects","mode":"fast","sources_included":4,"preflight_markdown_path":"/tmp/codex_preflight.md","context_md_path":"/tmp/context.md","sources_jsonl_path":"/tmp/sources.jsonl","manifest_json_path":"/tmp/manifest.json","resolution_plan_json_path":"/tmp/resolution_plan.json"}
+JSON
+"#
+    };
+    std::fs::write(path, script).unwrap();
+    #[cfg(unix)]
+    {
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+}
+
+#[tokio::test]
 async fn launch_lifecycle_runs_sync_before_launch_writes_success_and_shutdowns_on_exit() {
     let temp = tempfile::tempdir().unwrap();
     let app_dir = temp.path().join("Codex.app");
@@ -436,6 +568,7 @@ async fn launch_lifecycle_runs_sync_before_launch_writes_success_and_shutdowns_o
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -489,6 +622,7 @@ async fn launch_lifecycle_passes_configured_extra_args_to_codex_launch() {
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -502,6 +636,39 @@ async fn launch_lifecycle_passes_configured_extra_args_to_codex_launch() {
             .unwrap()
             .contains(&"launch:9229:--force_high_performance_gpu".to_string())
     );
+}
+
+#[tokio::test]
+async fn launch_lifecycle_passes_isolated_user_data_dir_to_codex_launch() {
+    let temp = tempfile::tempdir().unwrap();
+    let app_dir = temp.path().join("Codex.app");
+    let user_data_dir = temp.path().join("isolated-profile");
+    std::fs::create_dir_all(&app_dir).unwrap();
+    let status_store = StatusStore::new(temp.path().join("latest-status.json"));
+    let events = Arc::new(Mutex::new(Vec::<String>::new()));
+    let hooks = FakeHooks::new(events.clone());
+
+    let handle = launch_and_inject_with_hooks(
+        LaunchOptions {
+            app_dir: Some(app_dir),
+            debug_port: 9333,
+            helper_port: 57322,
+            macos_new_instance: true,
+            user_data_dir: Some(user_data_dir.clone()),
+            status_store,
+            ..LaunchOptions::default()
+        },
+        &hooks,
+    )
+    .await
+    .unwrap();
+    handle.wait_for_codex_exit().await.unwrap();
+
+    let events = events.lock().unwrap().clone();
+    assert!(events.contains(&format!(
+        "launch:9333:new-instance:--user-data-dir={}",
+        user_data_dir.to_string_lossy()
+    )));
 }
 
 #[tokio::test]
@@ -522,6 +689,7 @@ async fn launch_lifecycle_keeps_js_injection_in_relay_mode() {
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -564,6 +732,7 @@ async fn launch_lifecycle_skips_helper_and_injection_when_enhancements_disabled(
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -603,6 +772,7 @@ async fn launch_lifecycle_runs_computer_use_guard_when_enabled() {
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -644,6 +814,7 @@ async fn launch_lifecycle_skips_computer_use_guard_by_default() {
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -675,6 +846,7 @@ async fn launch_lifecycle_skips_active_relay_profile_when_supplier_config_disabl
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -727,6 +899,7 @@ experimental_bearer_token = "sk-test"
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -755,6 +928,7 @@ async fn launch_lifecycle_enters_degraded_mode_and_retries_when_injection_fails(
             debug_port: 9229,
             helper_port: 57321,
             status_store: status_store.clone(),
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -800,6 +974,7 @@ async fn launch_lifecycle_cleans_helper_when_launch_fails_after_helper_started()
             debug_port: 9229,
             helper_port: 57321,
             status_store: status_store.clone(),
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -864,6 +1039,7 @@ async fn launch_starts_helper_when_chat_protocol_proxy_is_enabled() {
             debug_port: 9229,
             helper_port: 58000,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -907,6 +1083,7 @@ async fn launch_lifecycle_cleans_helper_and_codex_when_status_save_fails() {
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -952,6 +1129,7 @@ async fn launch_lifecycle_keeps_packaged_process_id_running_and_retries_when_inj
             debug_port: 9229,
             helper_port: 57321,
             status_store,
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -1130,13 +1308,19 @@ impl LaunchHooks for FakeHooks {
         &self,
         app_dir: &Path,
         debug_port: u16,
+        macos_new_instance: bool,
         extra_args: &[String],
     ) -> anyhow::Result<CodexLaunch> {
         assert!(app_dir.ends_with("Codex.app"));
-        if extra_args.is_empty() {
-            self.event(format!("launch:{debug_port}"));
+        let prefix = if macos_new_instance {
+            format!("launch:{debug_port}:new-instance")
         } else {
-            self.event(format!("launch:{debug_port}:{}", extra_args.join(",")));
+            format!("launch:{debug_port}")
+        };
+        if extra_args.is_empty() {
+            self.event(prefix);
+        } else {
+            self.event(format!("{prefix}:{}", extra_args.join(",")));
         }
         if let Some(message) = &self.launch_error {
             anyhow::bail!(message.clone());

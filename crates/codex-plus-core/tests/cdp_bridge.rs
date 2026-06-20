@@ -444,6 +444,8 @@ fn injection_script_exposes_fast_service_tier_control() {
 
     assert!(script.contains("default-service-tier"));
     assert!(script.contains("setting-storage-"));
+    assert!(script.contains("vscode-api-"));
+    assert!(script.contains("loadCodexAppMessageDispatcher"));
     assert!(script.contains("codexAppAssetUrl"));
     assert!(script.contains("codexThreadServiceTierOverrides"));
     assert!(script.contains("setCodexThreadServiceTierMode"));
@@ -507,6 +509,45 @@ fn injection_script_exposes_fast_service_tier_control() {
     assert!(script.contains("当前 thread"));
     assert!(script.contains("standard"));
     assert!(script.contains("fast"));
+}
+
+#[test]
+fn injection_script_exposes_agent_context_default_preflight_hook() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("[Codex++ Auto Context]"));
+    assert!(script.contains("/agent-context/task-preflight"));
+    assert!(script.contains("codexAgentContextRequestMethods"));
+    assert!(script.contains("codexAgentContextExtractGoal"));
+    assert!(script.contains("codexAgentContextRequestOverride"));
+    assert!(script.contains("codexAgentContextPreflightHint"));
+    assert!(script.contains("codexAgentContextAppendHint"));
+    assert!(script.contains(
+        "Before answering, read the local preflight/context files generated for this task."
+    ));
+    assert!(script.contains("thread/start"));
+    assert!(script.contains("turn/start"));
+}
+
+#[test]
+fn injection_script_appends_agent_context_preflight_to_turn_start() {
+    let result = run_agent_context_injection_harness();
+
+    assert_eq!(result["goal"], "开源往事如何在番茄爆火，面向的读者是谁");
+    assert_eq!(result["bridgePath"], "/agent-context/task-preflight");
+    assert_eq!(result["bridgePayload"]["method"], "turn/start");
+
+    let input = result["turnInput"]
+        .as_str()
+        .expect("turn input should be a string");
+    assert!(input.contains("开源往事如何在番茄爆火"));
+    assert!(input.contains("[Codex++ Auto Context]"));
+    assert!(input.contains("Preflight: /tmp/codex_preflight.md"));
+    assert!(input.contains("Context: /tmp/context.md"));
+    assert!(input.contains("Sources: /tmp/sources.jsonl"));
+
+    assert_eq!(result["diagnosticStatus"], "ok");
+    assert_eq!(result["diagnosticSourcesIncluded"], 3);
 }
 
 #[test]
@@ -580,6 +621,7 @@ globalThis.document = {{
   documentElement: node(),
   body: node(),
   createElement: () => node(),
+  getElementById: () => null,
   querySelector: () => null,
   querySelectorAll: () => [],
   addEventListener() {{}},
@@ -653,6 +695,123 @@ process.stdout.write(JSON.stringify({{
         .arg(&harness_path)
         .output()
         .expect("node should run service-tier harness");
+    assert!(
+        output.status.success(),
+        "node harness failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("harness stdout should be JSON")
+}
+
+fn run_agent_context_injection_harness() -> serde_json::Value {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+    let script_path = temp.path().join("renderer-inject.js");
+    let harness_path = temp.path().join("agent-context-harness.cjs");
+    std::fs::write(&script_path, assets::injection_script(57321))
+        .expect("injection script should be written");
+    let mut harness = std::fs::File::create(&harness_path).expect("harness should be created");
+    write!(
+        harness,
+        r#"
+(async () => {{
+  const scriptPath = {script_path};
+  const store = new Map();
+  function node() {{
+    return {{
+      appendChild() {{}},
+      prepend() {{}},
+      remove() {{}},
+      setAttribute() {{}},
+      removeAttribute() {{}},
+      addEventListener() {{}},
+      querySelector() {{ return null; }},
+      querySelectorAll() {{ return []; }},
+      closest() {{ return null; }},
+      classList: {{ add() {{}}, remove() {{}}, toggle() {{}}, contains() {{ return false; }} }},
+      dataset: {{}},
+      style: {{}},
+      children: [],
+      isConnected: true,
+      textContent: "",
+      innerHTML: "",
+    }};
+  }}
+  globalThis.window = globalThis;
+  window.__CODEX_PLUS_TEST_SERVICE_TIER__ = true;
+  const bridgeCalls = [];
+  window.__codexSessionDeleteBridge = async (path, payload) => {{
+    bridgeCalls.push({{ path, payload }});
+    if (path === "/agent-context/task-preflight") {{
+      return {{
+        status: "ok",
+        goal: payload.goal,
+        sourcesIncluded: 3,
+        codexPreflightMd: "/tmp/codex_preflight.md",
+        contextMd: "/tmp/context.md",
+        sourcesJsonl: "/tmp/sources.jsonl",
+        manifestJson: "/tmp/manifest.json",
+        resolutionPlanJson: "/tmp/resolution_plan.json",
+      }};
+    }}
+    if (path === "/diagnostics/log") return {{ status: "ok" }};
+    return {{ status: "failed", message: "unexpected path" }};
+  }};
+  globalThis.document = {{
+    scripts: [],
+    documentElement: node(),
+    body: node(),
+    createElement: () => node(),
+    getElementById: () => null,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener() {{}},
+    removeEventListener() {{}},
+  }};
+  globalThis.localStorage = {{
+    getItem: (key) => store.has(key) ? store.get(key) : null,
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+  }};
+  globalThis.location = {{ href: "https://codex.test/thread/thread-12345678", pathname: "/thread/thread-12345678", search: "", hash: "" }};
+  window.location = globalThis.location;
+  globalThis.navigator = {{ userAgent: "node-test" }};
+  globalThis.performance = {{ getEntriesByType: () => [] }};
+  require(scriptPath);
+  const api = window.__codexPlusServiceTierTest;
+  const message = await Promise.resolve(api.agentContextRequestOverride({{
+    type: "send-cli-request-for-host",
+    method: "turn/start",
+    conversationId: "thread-12345678",
+    params: {{
+      threadId: "thread-12345678",
+      input: "开源往事如何在番茄爆火，面向的读者是谁",
+    }},
+  }}));
+  const diagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_task_preflight");
+  process.stdout.write(JSON.stringify({{
+    goal: api.agentContextExtractGoal({{ input: "开源往事如何在番茄爆火，面向的读者是谁" }}),
+    bridgePath: bridgeCalls[0]?.path || "",
+    bridgePayload: bridgeCalls[0]?.payload || {{}},
+    turnInput: message.params.input,
+    diagnosticStatus: diagnostic?.detail?.status || "",
+    diagnosticSourcesIncluded: diagnostic?.detail?.sourcesIncluded || 0,
+  }}));
+}})().catch((error) => {{
+  console.error(error && error.stack ? error.stack : error);
+  process.exit(1);
+}});
+"#,
+        script_path = serde_json::to_string(&script_path.to_string_lossy().to_string())
+            .expect("script path should serialize")
+    )
+    .expect("harness should be written");
+    drop(harness);
+
+    let output = Command::new("node")
+        .arg(&harness_path)
+        .output()
+        .expect("node should run agent context harness");
     assert!(
         output.status.success(),
         "node harness failed\nstdout:\n{}\nstderr:\n{}",

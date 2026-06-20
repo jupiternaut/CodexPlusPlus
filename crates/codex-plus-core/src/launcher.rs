@@ -73,6 +73,8 @@ pub struct LaunchOptions {
     pub app_dir: Option<PathBuf>,
     pub debug_port: u16,
     pub helper_port: u16,
+    pub macos_new_instance: bool,
+    pub user_data_dir: Option<PathBuf>,
     pub status_store: StatusStore,
 }
 
@@ -82,6 +84,8 @@ impl Default for LaunchOptions {
             app_dir: None,
             debug_port: 9229,
             helper_port: 57321,
+            macos_new_instance: false,
+            user_data_dir: None,
             status_store: StatusStore::default(),
         }
     }
@@ -143,6 +147,7 @@ pub trait LaunchHooks: Send + Sync {
         &self,
         app_dir: &Path,
         debug_port: u16,
+        macos_new_instance: bool,
         extra_args: &[String],
     ) -> anyhow::Result<CodexLaunch>;
     async fn bridge_context(
@@ -269,8 +274,15 @@ where
             helper_started = true;
         }
 
+        let effective_extra_args =
+            launch_extra_args(&settings.codex_extra_args, options.user_data_dir.as_deref());
         let launch = hooks
-            .launch_codex(&app_dir, debug_port, &settings.codex_extra_args)
+            .launch_codex(
+                &app_dir,
+                debug_port,
+                options.macos_new_instance,
+                &effective_extra_args,
+            )
             .await?;
         launched = Some(launch.clone());
         keep_launched_on_error = true;
@@ -495,6 +507,7 @@ impl LaunchHooks for DefaultLaunchHooks {
         &self,
         app_dir: &Path,
         debug_port: u16,
+        macos_new_instance: bool,
         extra_args: &[String],
     ) -> anyhow::Result<CodexLaunch> {
         if cfg!(windows) {
@@ -567,7 +580,8 @@ impl LaunchHooks for DefaultLaunchHooks {
             } else {
                 MacosCleanupPolicy::QuitIfNotPreviouslyRunning
             };
-            let command = build_macos_open_command(app_dir, debug_port, extra_args);
+            let command =
+                build_macos_open_command(app_dir, debug_port, macos_new_instance, extra_args);
             let executable = command
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("macOS open command is empty"))?;
@@ -829,6 +843,45 @@ async fn handle_helper_connection(
                 "application/json; charset=utf-8".to_string(),
                 "helper.diagnostics_log_ok",
             )
+        } else if path == "/agent-context/task-preflight" && matches!(method, "POST" | "OPTIONS") {
+            if method == "OPTIONS" {
+                (
+                    "200 OK".to_string(),
+                    Vec::new(),
+                    "application/json; charset=utf-8".to_string(),
+                    "helper.agent_context_task_preflight_options",
+                )
+            } else {
+                agent_context_task_preflight_response(request_body)
+            }
+        } else if path == "/usage/summary" && matches!(method, "GET" | "POST" | "OPTIONS") {
+            if method == "OPTIONS" {
+                (
+                    "200 OK".to_string(),
+                    Vec::new(),
+                    "application/json; charset=utf-8".to_string(),
+                    "helper.usage_summary_options",
+                )
+            } else {
+                match crate::routes::openusage_summary().await {
+                    Ok(summary) => (
+                        "200 OK".to_string(),
+                        serde_json::to_vec(&summary)?,
+                        "application/json; charset=utf-8".to_string(),
+                        "helper.usage_summary_ok",
+                    ),
+                    Err(error) => (
+                        "200 OK".to_string(),
+                        serde_json::to_vec(&serde_json::json!({
+                            "status": "failed",
+                            "message": error.to_string(),
+                            "source": "openusage"
+                        }))?,
+                        "application/json; charset=utf-8".to_string(),
+                        "helper.usage_summary_failed",
+                    ),
+                }
+            }
         } else if path == "/overlay/image" && matches!(method, "GET" | "OPTIONS") {
             if method == "OPTIONS" {
                 (
@@ -876,6 +929,43 @@ async fn handle_helper_connection(
     }
     stream.shutdown().await?;
     Ok(())
+}
+
+fn agent_context_task_preflight_response(
+    request_body: &str,
+) -> (String, Vec<u8>, String, &'static str) {
+    let payload = serde_json::from_str::<serde_json::Value>(request_body).unwrap_or_default();
+    let goal = payload
+        .get("goal")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let body = if goal.is_empty() {
+        serde_json::json!({
+            "status": "failed",
+            "message": "任务目标不能为空。"
+        })
+    } else {
+        match crate::agent_context::run_agent_context_task_preflight(&goal) {
+            Ok(preflight) => serde_json::to_value(preflight).unwrap_or_else(|error| {
+                serde_json::json!({
+                    "status": "failed",
+                    "message": error.to_string()
+                })
+            }),
+            Err(error) => serde_json::json!({
+                "status": "failed",
+                "message": error.to_string()
+            }),
+        }
+    };
+    (
+        "200 OK".to_string(),
+        serde_json::to_vec(&body).unwrap_or_default(),
+        "application/json; charset=utf-8".to_string(),
+        "helper.agent_context_task_preflight",
+    )
 }
 
 fn overlay_image_response() -> (String, Vec<u8>, String, &'static str) {
@@ -1624,18 +1714,30 @@ async fn try_inject(debug_port: u16, helper_port: u16) -> anyhow::Result<()> {
     .await
 }
 
+fn launch_extra_args(configured: &[String], user_data_dir: Option<&Path>) -> Vec<String> {
+    let mut args = normalize_codex_extra_args(configured);
+    if let Some(path) = user_data_dir {
+        args.push(format!("--user-data-dir={}", path.to_string_lossy()));
+    }
+    args
+}
+
 pub fn build_macos_open_command(
     app_dir: &Path,
     debug_port: u16,
+    new_instance: bool,
     extra_args: &[String],
 ) -> Vec<String> {
-    let mut command = vec![
-        "open".to_string(),
+    let mut command = vec!["open".to_string()];
+    if new_instance {
+        command.push("-n".to_string());
+    }
+    command.extend([
         "-W".to_string(),
         "-a".to_string(),
         app_dir.to_string_lossy().to_string(),
         "--args".to_string(),
-    ];
+    ]);
     command.extend(build_codex_arguments(debug_port, extra_args));
     command
 }

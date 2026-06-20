@@ -35,6 +35,11 @@ async fn bridge_routes_cover_all_current_paths() {
         ("/backend/repair", json!({})),
         ("/codex-model-catalog", json!({})),
         ("/codex-config-model", json!({})),
+        (
+            "/agent-context/task-preflight",
+            json!({"goal": "研究本地推荐系统"}),
+        ),
+        ("/usage/summary", json!({})),
         ("/ads", json!({})),
         ("/zed-remote/status", json!({})),
         (
@@ -302,6 +307,28 @@ async fn runtime_status_devtools_repair_and_ads_routes_are_dispatched() {
     assert_eq!(
         handle_bridge_request(ctx.clone(), "/backend/repair", json!({})).await,
         json!({"status": "ok", "message": "后端已修复", "version": codex_plus_core::version::VERSION})
+    );
+    assert_eq!(
+        handle_bridge_request(ctx.clone(), "/usage/summary", json!({})).await,
+        json!({
+            "status": "ok",
+            "source": "openusage",
+            "providers": [{
+                "providerId": "codex",
+                "displayName": "Codex",
+                "plan": "Pro 20x",
+                "progress": [{
+                    "label": "Session",
+                    "usedPercent": 4.0,
+                    "leftPercent": 96.0
+                }],
+                "text": [{
+                    "label": "Today",
+                    "value": "$11.36 · 11M tokens"
+                }],
+                "charts": []
+            }]
+        })
     );
     assert_eq!(
         handle_bridge_request(ctx.clone(), "/ads", json!({})).await,
@@ -899,6 +926,7 @@ async fn launch_lifecycle_uses_hook_supplied_bridge_context_for_injection() {
             debug_port: 9229,
             helper_port: 57321,
             status_store: StatusStore::new(temp.path().join("latest-status.json")),
+            ..LaunchOptions::default()
         },
         &hooks,
     )
@@ -1075,6 +1103,44 @@ impl BridgeRuntimeService for FakeRuntime {
             "provider_name": "Relay",
             "models": ["qwen3-coder"],
             "sources": []
+        }))
+    }
+
+    async fn agent_context_task_preflight(&self, payload: Value) -> anyhow::Result<Value> {
+        Ok(json!({
+            "status": "ok",
+            "message": "任务预检已生成，包含 2 条来源。",
+            "goal": payload.get("goal").and_then(Value::as_str).unwrap_or_default(),
+            "scope": "gitProjects",
+            "mode": "fast",
+            "sourcesIncluded": 2,
+            "codexPreflightMd": "/tmp/codex_preflight.md",
+            "contextMd": "/tmp/context.md",
+            "sourcesJsonl": "/tmp/sources.jsonl",
+            "manifestJson": "/tmp/manifest.json",
+            "resolutionPlanJson": "/tmp/resolution_plan.json"
+        }))
+    }
+
+    async fn usage_summary(&self) -> anyhow::Result<Value> {
+        Ok(json!({
+            "status": "ok",
+            "source": "openusage",
+            "providers": [{
+                "providerId": "codex",
+                "displayName": "Codex",
+                "plan": "Pro 20x",
+                "progress": [{
+                    "label": "Session",
+                    "usedPercent": 4.0,
+                    "leftPercent": 96.0
+                }],
+                "text": [{
+                    "label": "Today",
+                    "value": "$11.36 · 11M tokens"
+                }],
+                "charts": []
+            }]
         }))
     }
 
@@ -1342,6 +1408,7 @@ impl LaunchHooks for ContextHooks {
         &self,
         _app_dir: &std::path::Path,
         _debug_port: u16,
+        _macos_new_instance: bool,
         _extra_args: &[String],
     ) -> anyhow::Result<CodexLaunch> {
         Ok(CodexLaunch::Process {

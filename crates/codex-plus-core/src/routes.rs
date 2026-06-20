@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -79,6 +79,8 @@ pub trait BridgeRuntimeService: Send + Sync {
     async fn backend_status(&self) -> anyhow::Result<Value>;
     async fn repair_backend(&self) -> anyhow::Result<Value>;
     async fn codex_model_catalog(&self) -> anyhow::Result<Value>;
+    async fn agent_context_task_preflight(&self, payload: Value) -> anyhow::Result<Value>;
+    async fn usage_summary(&self) -> anyhow::Result<Value>;
     async fn ads(&self) -> anyhow::Result<Value>;
     async fn zed_remote_status(&self) -> anyhow::Result<Value>;
     async fn resolve_zed_remote_host(&self, payload: Value) -> anyhow::Result<Value>;
@@ -167,6 +169,12 @@ pub async fn handle_bridge_request(
         "/backend/status" => ctx.runtime.backend_status().await,
         "/backend/repair" => ctx.runtime.repair_backend().await,
         "/codex-model-catalog" | "/codex-config-model" => ctx.runtime.codex_model_catalog().await,
+        "/agent-context/task-preflight" => {
+            ctx.runtime
+                .agent_context_task_preflight(payload.clone())
+                .await
+        }
+        "/usage/summary" => ctx.runtime.usage_summary().await,
         "/diagnostics/log" => diagnostic_log_value(payload.clone()),
         "/ads" => ctx.runtime.ads().await,
         "/zed-remote/status" => ctx.runtime.zed_remote_status().await,
@@ -466,6 +474,27 @@ impl BridgeRuntimeService for CoreRuntimeService {
         Ok(crate::model_catalog::read_codex_model_catalog().await)
     }
 
+    async fn agent_context_task_preflight(&self, payload: Value) -> anyhow::Result<Value> {
+        let goal = payload
+            .get("goal")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if goal.is_empty() {
+            return Ok(json!({
+                "status": "failed",
+                "message": "任务目标不能为空。"
+            }));
+        }
+        let preflight = crate::agent_context::run_agent_context_task_preflight(&goal)?;
+        serde_json::to_value(preflight).map_err(Into::into)
+    }
+
+    async fn usage_summary(&self) -> anyhow::Result<Value> {
+        openusage_summary().await
+    }
+
     async fn ads(&self) -> anyhow::Result<Value> {
         crate::ads::fetch_ad_list().await
     }
@@ -519,6 +548,138 @@ impl BridgeRuntimeService for CoreRuntimeService {
     async fn upstream_worktree_create(&self, payload: Value) -> anyhow::Result<Value> {
         Ok(crate::upstream_worktree::create_response(&payload))
     }
+}
+
+const OPENUSAGE_USAGE_ENDPOINT: &str = "http://127.0.0.1:6736/v1/usage";
+
+pub async fn openusage_summary() -> anyhow::Result<Value> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()?;
+    let response = client.get(OPENUSAGE_USAGE_ENDPOINT).send().await?;
+    let status = response.status();
+    if !status.is_success() {
+        anyhow::bail!("OpenUsage returned HTTP {status}");
+    }
+    let payload: Value = response.json().await?;
+    Ok(normalize_openusage_summary(payload))
+}
+
+fn normalize_openusage_summary(payload: Value) -> Value {
+    let providers = match payload {
+        Value::Array(items) => items,
+        Value::Object(mut object) => object
+            .remove("providers")
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let providers = providers
+        .into_iter()
+        .filter_map(normalize_openusage_provider)
+        .collect::<Vec<_>>();
+    let primary_provider = providers
+        .iter()
+        .find(|provider| provider.get("providerId").and_then(Value::as_str) == Some("codex"))
+        .or_else(|| providers.first())
+        .cloned()
+        .unwrap_or_else(|| json!(null));
+
+    json!({
+        "status": "ok",
+        "source": "openusage",
+        "endpoint": OPENUSAGE_USAGE_ENDPOINT,
+        "fetchedAtMs": unix_time_ms(),
+        "providers": providers,
+        "primaryProvider": primary_provider
+    })
+}
+
+fn normalize_openusage_provider(provider: Value) -> Option<Value> {
+    let object = provider.as_object()?;
+    let lines = object
+        .get("lines")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let progress = lines
+        .iter()
+        .filter_map(normalize_openusage_progress_line)
+        .collect::<Vec<_>>();
+    let text = lines
+        .iter()
+        .filter_map(normalize_openusage_text_line)
+        .collect::<Vec<_>>();
+    let charts = lines
+        .iter()
+        .filter_map(normalize_openusage_chart_line)
+        .collect::<Vec<_>>();
+
+    Some(json!({
+        "providerId": object.get("providerId").and_then(Value::as_str).unwrap_or(""),
+        "displayName": object.get("displayName").and_then(Value::as_str).unwrap_or("Codex"),
+        "plan": object.get("plan").and_then(Value::as_str).unwrap_or(""),
+        "progress": progress,
+        "text": text,
+        "charts": charts,
+        "rawLines": lines
+    }))
+}
+
+fn normalize_openusage_progress_line(line: &Value) -> Option<Value> {
+    if line.get("type").and_then(Value::as_str) != Some("progress") {
+        return None;
+    }
+    let used = line.get("used").and_then(Value::as_f64).unwrap_or(0.0);
+    let limit = line.get("limit").and_then(Value::as_f64).unwrap_or(0.0);
+    let used_percent = if limit > 0.0 {
+        (used / limit * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+
+    Some(json!({
+        "label": line.get("label").and_then(Value::as_str).unwrap_or(""),
+        "used": used,
+        "limit": limit,
+        "usedPercent": used_percent,
+        "leftPercent": (100.0 - used_percent).clamp(0.0, 100.0),
+        "format": line.get("format").cloned().unwrap_or_else(|| json!({})),
+        "resetsAt": line.get("resetsAt").cloned().unwrap_or(Value::Null),
+        "periodDurationMs": line.get("periodDurationMs").cloned().unwrap_or(Value::Null),
+        "color": line.get("color").cloned().unwrap_or(Value::Null)
+    }))
+}
+
+fn normalize_openusage_text_line(line: &Value) -> Option<Value> {
+    if line.get("type").and_then(Value::as_str) != Some("text") {
+        return None;
+    }
+    Some(json!({
+        "label": line.get("label").and_then(Value::as_str).unwrap_or(""),
+        "value": line.get("value").and_then(Value::as_str).unwrap_or(""),
+        "subtitle": line.get("subtitle").and_then(Value::as_str).unwrap_or(""),
+        "color": line.get("color").cloned().unwrap_or(Value::Null)
+    }))
+}
+
+fn normalize_openusage_chart_line(line: &Value) -> Option<Value> {
+    let line_type = line.get("type").and_then(Value::as_str)?;
+    if !line_type.eq_ignore_ascii_case("barChart") {
+        return None;
+    }
+    Some(json!({
+        "type": line_type,
+        "label": line.get("label").and_then(Value::as_str).unwrap_or(""),
+        "points": line.get("points").and_then(Value::as_array).cloned().unwrap_or_default()
+    }))
+}
+
+fn unix_time_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
 }
 
 struct UnavailableDataService;

@@ -4,6 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use codex_plus_core::agent_context::{
+    AgentContextAccessConsentState, AgentContextAccessPolicyPatch, AgentContextAccessPolicyState,
+    AgentContextFeedbackEntry, AgentContextPanelConfig, AgentContextPanelState,
+    AgentContextTaskPreflight, AgentContextV1FollowupResult,
+};
 use codex_plus_core::install::SILENT_BINARY;
 use codex_plus_core::models::{DeleteResult, SessionRef};
 use codex_plus_core::script_market::{self, MarketScript, ScriptMarketManifest};
@@ -56,6 +61,20 @@ pub struct SettingsPayload {
     pub settings: BackendSettings,
     pub settings_path: String,
     pub user_scripts: Value,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentContextPanelRunRequest {
+    pub goal: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentContextAccessConsentRequest {
+    pub identifier: String,
+    #[serde(default)]
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -362,14 +381,27 @@ fn spawn_codex_plus_launch(request: LaunchRequest, accepted_message: &str) -> Co
         }),
     );
     match spawn_silent_launcher(&request) {
-        Ok(()) => CommandResult {
-            status: "accepted".to_string(),
-            message: accepted_message.to_string(),
-            payload: json!({
-                "debugPort": debug_port,
-                "helperPort": helper_port
-            }),
-        },
+        Ok(()) => {
+            let agent_context = codex_plus_core::agent_context::start_launch_prewarm();
+            let _ = codex_plus_core::diagnostic_log::append_diagnostic_log(
+                "manager.agent_context_prewarm",
+                json!({
+                    "status": agent_context.status,
+                    "goal": agent_context.goal,
+                    "scope": agent_context.scope,
+                    "mode": agent_context.mode
+                }),
+            );
+            CommandResult {
+                status: "accepted".to_string(),
+                message: accepted_message.to_string(),
+                payload: json!({
+                    "debugPort": debug_port,
+                    "helperPort": helper_port,
+                    "agentContext": agent_context
+                }),
+            }
+        }
         Err(error) => failed(
             &format!("启动静默入口失败：{error}"),
             json!({
@@ -427,6 +459,196 @@ pub fn save_settings(settings: BackendSettings) -> CommandResult<SettingsPayload
                     .to_string(),
                 user_scripts: user_script_inventory(),
             },
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn load_agent_context_panel() -> CommandResult<AgentContextPanelState> {
+    match codex_plus_core::agent_context::load_agent_context_panel_state() {
+        Ok(payload) => ok("Agent Context 配置已加载。", payload),
+        Err(error) => failed(
+            &format!("Agent Context 配置读取失败：{error}"),
+            codex_plus_core::agent_context::fallback_agent_context_panel_state(),
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn save_agent_context_panel_config(
+    config: AgentContextPanelConfig,
+) -> CommandResult<AgentContextPanelState> {
+    match codex_plus_core::agent_context::save_agent_context_panel_config(&config) {
+        Ok(payload) => ok("Agent Context 配置已保存。", payload),
+        Err(error) => failed(
+            &format!("Agent Context 配置保存失败：{error}"),
+            codex_plus_core::agent_context::fallback_agent_context_panel_state(),
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn load_agent_context_access_policy() -> CommandResult<AgentContextAccessPolicyState> {
+    match codex_plus_core::agent_context::load_agent_context_access_policy() {
+        Ok(payload) => ok("Agent Context 权限策略已加载。", payload),
+        Err(error) => failed(
+            &format!("Agent Context 权限策略读取失败：{error}"),
+            AgentContextAccessPolicyState::default(),
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn update_agent_context_access_policy(
+    request: AgentContextAccessPolicyPatch,
+) -> CommandResult<AgentContextAccessPolicyState> {
+    match codex_plus_core::agent_context::update_agent_context_access_policy(&request) {
+        Ok(payload) => ok("Agent Context 权限策略已更新。", payload),
+        Err(error) => failed(
+            &format!("Agent Context 权限策略更新失败：{error}"),
+            AgentContextAccessPolicyState::default(),
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn grant_agent_context_access_consent(
+    request: AgentContextAccessConsentRequest,
+) -> CommandResult<AgentContextAccessConsentState> {
+    if request.identifier.trim().is_empty() {
+        return failed(
+            "授权来源不能为空。",
+            AgentContextAccessConsentState::default(),
+        );
+    }
+    match codex_plus_core::agent_context::grant_agent_context_access_consent(
+        &request.identifier,
+        &request.reason,
+    ) {
+        Ok(payload) => ok("Agent Context 读取授权已记录。", payload),
+        Err(error) => failed(
+            &format!("Agent Context 读取授权失败：{error}"),
+            AgentContextAccessConsentState::default(),
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn run_agent_context_panel(
+    request: AgentContextPanelRunRequest,
+) -> CommandResult<AgentContextPanelState> {
+    if request.goal.trim().is_empty() {
+        return failed(
+            "任务目标不能为空。",
+            codex_plus_core::agent_context::load_agent_context_panel_state().unwrap_or_else(|_| {
+                codex_plus_core::agent_context::fallback_agent_context_panel_state()
+            }),
+        );
+    }
+    match codex_plus_core::agent_context::run_agent_context_panel(&request.goal) {
+        Ok(payload) => ok("Agent Context 上下文包已生成。", payload),
+        Err(error) => failed(
+            &format!("Agent Context 上下文包生成失败：{error}"),
+            codex_plus_core::agent_context::load_agent_context_panel_state().unwrap_or_else(|_| {
+                codex_plus_core::agent_context::fallback_agent_context_panel_state()
+            }),
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn run_agent_context_task_preflight(
+    request: AgentContextPanelRunRequest,
+) -> CommandResult<AgentContextTaskPreflight> {
+    if request.goal.trim().is_empty() {
+        return failed(
+            "任务目标不能为空。",
+            codex_plus_core::agent_context::AgentContextTaskPreflight {
+                status: "failed".to_string(),
+                message: "任务目标不能为空。".to_string(),
+                goal: String::new(),
+                scope: String::new(),
+                mode: String::new(),
+                sources_included: 0,
+                codex_preflight_md: String::new(),
+                context_md: String::new(),
+                sources_jsonl: String::new(),
+                manifest_json: String::new(),
+                resolution_plan_json: String::new(),
+            },
+        );
+    }
+    match codex_plus_core::agent_context::run_agent_context_task_preflight(&request.goal) {
+        Ok(payload) => ok("Agent Context 任务预检已生成。", payload),
+        Err(error) => failed(
+            &format!("Agent Context 任务预检失败：{error}"),
+            codex_plus_core::agent_context::AgentContextTaskPreflight {
+                status: "failed".to_string(),
+                message: error.to_string(),
+                goal: request.goal,
+                scope: String::new(),
+                mode: String::new(),
+                sources_included: 0,
+                codex_preflight_md: String::new(),
+                context_md: String::new(),
+                sources_jsonl: String::new(),
+                manifest_json: String::new(),
+                resolution_plan_json: String::new(),
+            },
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn run_agent_context_v1_followup() -> CommandResult<AgentContextV1FollowupResult> {
+    match codex_plus_core::agent_context::run_agent_context_v1_followup() {
+        Ok(payload) => ok("Agent Context v1 follow-up gate 已执行。", payload),
+        Err(error) => failed(
+            &format!("Agent Context v1 follow-up gate 执行失败：{error}"),
+            AgentContextV1FollowupResult {
+                status: "failed".to_string(),
+                action: "failed".to_string(),
+                ..AgentContextV1FollowupResult::default()
+            },
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn record_agent_context_feedback(request: AgentContextFeedbackEntry) -> CommandResult<Value> {
+    if request.winner.trim().is_empty() {
+        return failed("反馈结果不能为空。", json!({}));
+    }
+    match codex_plus_core::agent_context::record_agent_context_feedback(request) {
+        Ok(path) => ok(
+            "Agent Context 反馈已记录。",
+            json!({ "feedbackPath": path.to_string_lossy().to_string() }),
+        ),
+        Err(error) => failed(&format!("Agent Context 反馈记录失败：{error}"), json!({})),
+    }
+}
+
+#[tauri::command]
+pub fn open_agent_context_file(path: String) -> CommandResult<Value> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return failed("文件路径不能为空。", json!({}));
+    }
+    let path = PathBuf::from(trimmed);
+    if !path.exists() {
+        return failed(
+            "文件不存在。",
+            json!({ "path": path.to_string_lossy().to_string() }),
+        );
+    }
+    match open_file_path(&path) {
+        Ok(()) => ok(
+            "已打开本地文件。",
+            json!({ "path": path.to_string_lossy().to_string() }),
+        ),
+        Err(error) => failed(
+            &format!("打开本地文件失败：{error}"),
+            json!({ "path": path.to_string_lossy().to_string() }),
         ),
     }
 }
@@ -2217,6 +2439,34 @@ fn open_url(url: &str) -> anyhow::Result<()> {
             .spawn()
             .map(|_| ())
             .map_err(|error| anyhow::anyhow!("启动系统浏览器失败：{error}"))
+    }
+}
+
+fn open_file_path(path: &Path) -> anyhow::Result<()> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", ""])
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| anyhow::anyhow!("启动系统文件打开器失败：{error}"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| anyhow::anyhow!("启动系统文件打开器失败：{error}"))
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| anyhow::anyhow!("启动系统文件打开器失败：{error}"))
     }
 }
 

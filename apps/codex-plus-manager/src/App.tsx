@@ -186,6 +186,221 @@ type CodexContextEntries = {
   plugins: CodexContextEntry[];
 };
 
+type AgentContextScope = "downloads" | "gitProjects" | "codexSessions" | "agentSessions" | "workflowDocs" | "all";
+type AgentContextMode = "fast" | "deep" | "arena";
+
+type AgentContextAccessAuditEvent = {
+  createdAt: string;
+  action: string;
+  decision: string;
+  identifier: string;
+  provider: string;
+  sourceId: string;
+  sourceChunkId: string;
+  path: string;
+  reason: string;
+};
+
+type AgentContextAccessAudit = {
+  auditPath: string;
+  eventsTotal: number;
+  recentAllowed: number;
+  recentDenied: number;
+  recentFiltered: number;
+  recentConsentRequired: number;
+  recentEvents: AgentContextAccessAuditEvent[];
+  lastDenied: AgentContextAccessAuditEvent | null;
+};
+
+type AgentContextSemanticLaunchd = {
+  health: string;
+  installed: boolean;
+  plistPath: string;
+  scriptPath: string;
+  latestMaintainReport: string;
+  latestPruneReport: string;
+  monitorPath: string;
+  latestLaunchdActivityAt: string;
+  nextExpectedRunAfter: string;
+  naturalRunDue: boolean;
+  naturalRunOverdue: boolean;
+  secondsOverdue: number;
+};
+
+type AgentContextSemanticReadiness = {
+  exists: boolean;
+  status: string;
+  ready: boolean;
+  reason: string;
+  semanticChunks: number;
+  trendDaysObserved: number;
+  trendDaysRemaining: number;
+  monitorSnapshots: number;
+  nextMonitorDueAt: string;
+  earliestMultiDayCheckAfter: string;
+  nextAction: string;
+  reportPath: string;
+  reportMarkdownPath: string;
+};
+
+type AgentContextV1Acceptance = {
+  exists: boolean;
+  status: string;
+  ready: boolean;
+  decision: string;
+  createdAt: string;
+  reportPath: string;
+  reportMarkdownPath: string;
+  followupJsonPath: string;
+  followupMarkdownPath: string;
+  canRecheckNow: boolean;
+  earliestRecheckAfter: string;
+  nextMonitorDueAt: string;
+  trendDaysRemaining: number;
+  waitReason: string;
+  nextGateAt: string;
+  secondsUntilNextGate: number;
+  nextEvidenceGateReason: string;
+  nextEvidenceGateAt: string;
+  secondsUntilNextEvidenceGate: number;
+  acceptanceWaitReason: string;
+  acceptanceGateAt: string;
+  secondsUntilAcceptanceGate: number;
+  nextCommands: string[];
+};
+
+type AgentContextV1StageRow = {
+  id: string;
+  title: string;
+  status: string;
+  progress: number;
+  summary: string;
+};
+
+type AgentContextV1StageStatus = {
+  exists: boolean;
+  status: string;
+  ready: boolean;
+  decision: string;
+  createdAt: string;
+  reportPath: string;
+  reportMarkdownPath: string;
+  stagesTotal: number;
+  ok: number;
+  waitingForTime: number;
+  warning: number;
+  failed: number;
+  waitReason: string;
+  nextGateAt: string;
+  secondsUntilNextGate: number;
+  nextEvidenceGateReason: string;
+  nextEvidenceGateAt: string;
+  secondsUntilNextEvidenceGate: number;
+  acceptanceWaitReason: string;
+  acceptanceGateAt: string;
+  secondsUntilAcceptanceGate: number;
+  trendDaysRemaining: number;
+  stages: AgentContextV1StageRow[];
+};
+
+type AgentContextFeedbackReplayTrend = {
+  exists: boolean;
+  health: string;
+  reports: number;
+  cases: number;
+  latestExpectedTop1Rate: string;
+  trendRankImprovements: number;
+  trendRankRegressions: number;
+  latestReplayReportPath: string;
+  latestTrendReportPath: string;
+};
+
+type AgentContextAccessPolicy = {
+  allowProviders: string[];
+  denyProviders: string[];
+  denyPathPatterns: string[];
+  requireConsentProviders: string[];
+  requireConsentPathPatterns: string[];
+  auditMaxBytes: number;
+  auditMaxRotatedFiles: number;
+};
+
+type AgentContextAccessPolicyPatch = {
+  allowProviders?: string[];
+  removeAllowProviders?: string[];
+  denyProviders?: string[];
+  removeDenyProviders?: string[];
+  denyPathPatterns?: string[];
+  removeDenyPathPatterns?: string[];
+  requireConsentProviders?: string[];
+  removeRequireConsentProviders?: string[];
+  requireConsentPathPatterns?: string[];
+  removeRequireConsentPathPatterns?: string[];
+  auditMaxBytes?: number | null;
+  auditMaxRotatedFiles?: number | null;
+};
+
+type AgentContextAccessConsentGrant = {
+  createdAt: string;
+  key: string;
+  identifier: string;
+  reason: string;
+  provider: string;
+  sourceId: string;
+  sourceChunkId: string;
+  path: string;
+  relativePath: string;
+};
+
+type AgentContextAccessConsentState = {
+  consentPath: string;
+  written: boolean;
+  grantsTotal: number;
+  grant: AgentContextAccessConsentGrant;
+};
+
+type AgentContextPanelConfig = {
+  autoContext: boolean;
+  scope: AgentContextScope;
+  mode: AgentContextMode;
+  agentContextRoot: string;
+  agentContextBin: string;
+};
+
+type AgentContextPanelStatus = {
+  lastStatus: string;
+  lastMessage: string;
+  lastGoal: string;
+  lastScope: string;
+  lastMode: string;
+  lastGeneratedPack: string;
+  lastSourcesJsonl: string;
+  lastManifestJson: string;
+  lastResolutionPlanJson: string;
+  lastCodexPreflightMd: string;
+  lastGeneratedAtMs: number;
+  accessAudit: AgentContextAccessAudit;
+  semanticLaunchd: AgentContextSemanticLaunchd;
+  semanticReadiness: AgentContextSemanticReadiness;
+  v1Acceptance: AgentContextV1Acceptance;
+  v1StageStatus: AgentContextV1StageStatus;
+  feedbackReplayTrend: AgentContextFeedbackReplayTrend;
+};
+
+type AgentContextTaskPreflight = {
+  status: string;
+  message: string;
+  goal: string;
+  scope: AgentContextScope | string;
+  mode: AgentContextMode | string;
+  sourcesIncluded: number;
+  codexPreflightMd: string;
+  contextMd: string;
+  sourcesJsonl: string;
+  manifestJson: string;
+  resolutionPlanJson: string;
+};
+
 type RelayProtocol = "responses" | "chatCompletions";
 type RelayMode = "official" | "mixedApi" | "pureApi";
 const PROTOCOL_PROXY_BASE_URL = "http://127.0.0.1:57321/v1";
@@ -298,6 +513,42 @@ type ContextEntriesResult = CommandResult<{
 
 type LiveContextEntriesResult = CommandResult<{
   entries: CodexContextEntries;
+}>;
+
+type AgentContextPanelResult = CommandResult<{
+  configPath: string;
+  statusPath: string;
+  feedbackPath: string;
+  config: AgentContextPanelConfig;
+  status: AgentContextPanelStatus;
+}>;
+
+type AgentContextV1FollowupResult = CommandResult<{
+  status: string;
+  action: string;
+  ready: boolean;
+  canRecheckNow: boolean;
+  earliestRecheckAfter: string;
+  nextMonitorDueAt: string;
+  trendDaysRemaining: number;
+  waitReason: string;
+  nextGateAt: string;
+  secondsUntilNextGate: number;
+  acceptanceWaitReason: string;
+  acceptanceGateAt: string;
+  secondsUntilAcceptanceGate: number;
+  followupPlanLatestMdPath: string;
+  acceptanceLatestMdPath: string;
+  latestMdPath: string;
+  latestJsonPath: string;
+  nextCommand: string;
+}>;
+
+type AgentContextAccessPolicyResult = CommandResult<{
+  policyPath: string;
+  updated: boolean;
+  changes: string[];
+  policy: AgentContextAccessPolicy;
 }>;
 
 type ExtractRelayCommonConfigResult = CommandResult<{
@@ -483,7 +734,7 @@ type StartupResult = CommandResult<{
   showUpdate: boolean;
 }>;
 
-type Route = "overview" | "relay" | "sessions" | "context" | "enhance" | "zedRemote" | "userScripts" | "recommendations" | "maintenance" | "about" | "settings";
+type Route = "overview" | "relay" | "sessions" | "context" | "agentContext" | "enhance" | "zedRemote" | "userScripts" | "recommendations" | "maintenance" | "about" | "settings";
 type Theme = "dark" | "light";
 
 const routes: Array<{ id: Route; label: string; icon: LucideIcon }> = [
@@ -491,6 +742,7 @@ const routes: Array<{ id: Route; label: string; icon: LucideIcon }> = [
   { id: "relay", label: "供应商配置", icon: KeyRound },
   { id: "sessions", label: "会话管理", icon: MessageCircle },
   { id: "context", label: "工具与插件", icon: Network },
+  { id: "agentContext", label: "自动上下文", icon: FileCode2 },
   { id: "enhance", label: "页面增强", icon: Hammer },
   { id: "zedRemote", label: "Zed 远程项目", icon: ExternalLink },
   { id: "userScripts", label: "脚本市场", icon: FileCode2 },
@@ -568,6 +820,153 @@ const defaultSettings: BackendSettings = {
   cliWrapperApiKeyEnv: "CUSTOM_OPENAI_API_KEY",
 };
 
+const defaultAgentContextPanelConfig: AgentContextPanelConfig = {
+  autoContext: true,
+  scope: "all",
+  mode: "fast",
+  agentContextRoot: "",
+  agentContextBin: "",
+};
+
+const defaultAgentContextPanelStatus: AgentContextPanelStatus = {
+  lastStatus: "not_checked",
+  lastMessage: "",
+  lastGoal: "",
+  lastScope: "",
+  lastMode: "",
+  lastGeneratedPack: "",
+  lastSourcesJsonl: "",
+  lastManifestJson: "",
+  lastResolutionPlanJson: "",
+  lastCodexPreflightMd: "",
+  lastGeneratedAtMs: 0,
+  accessAudit: {
+    auditPath: "",
+    eventsTotal: 0,
+    recentAllowed: 0,
+    recentDenied: 0,
+    recentFiltered: 0,
+    recentConsentRequired: 0,
+    recentEvents: [],
+    lastDenied: null,
+  },
+  semanticLaunchd: {
+    health: "not_checked",
+    installed: false,
+    plistPath: "",
+    scriptPath: "",
+    latestMaintainReport: "",
+    latestPruneReport: "",
+    monitorPath: "",
+    latestLaunchdActivityAt: "",
+    nextExpectedRunAfter: "",
+    naturalRunDue: false,
+    naturalRunOverdue: false,
+    secondsOverdue: 0,
+  },
+  semanticReadiness: {
+    exists: false,
+    status: "not_checked",
+    ready: false,
+    reason: "",
+    semanticChunks: 0,
+    trendDaysObserved: 0,
+    trendDaysRemaining: 0,
+    monitorSnapshots: 0,
+    nextMonitorDueAt: "",
+    earliestMultiDayCheckAfter: "",
+    nextAction: "",
+    reportPath: "",
+    reportMarkdownPath: "",
+  },
+  v1Acceptance: {
+    exists: false,
+    status: "not_checked",
+    ready: false,
+    decision: "",
+    createdAt: "",
+    reportPath: "",
+    reportMarkdownPath: "",
+    followupJsonPath: "",
+    followupMarkdownPath: "",
+    canRecheckNow: false,
+    earliestRecheckAfter: "",
+    nextMonitorDueAt: "",
+    trendDaysRemaining: 0,
+    waitReason: "",
+    nextGateAt: "",
+    secondsUntilNextGate: 0,
+    nextEvidenceGateReason: "",
+    nextEvidenceGateAt: "",
+    secondsUntilNextEvidenceGate: 0,
+    acceptanceWaitReason: "",
+    acceptanceGateAt: "",
+    secondsUntilAcceptanceGate: 0,
+    nextCommands: [],
+  },
+  v1StageStatus: {
+    exists: false,
+    status: "not_checked",
+    ready: false,
+    decision: "",
+    createdAt: "",
+    reportPath: "",
+    reportMarkdownPath: "",
+    stagesTotal: 0,
+    ok: 0,
+    waitingForTime: 0,
+    warning: 0,
+    failed: 0,
+    waitReason: "",
+    nextGateAt: "",
+    secondsUntilNextGate: 0,
+    nextEvidenceGateReason: "",
+    nextEvidenceGateAt: "",
+    secondsUntilNextEvidenceGate: 0,
+    acceptanceWaitReason: "",
+    acceptanceGateAt: "",
+    secondsUntilAcceptanceGate: 0,
+    trendDaysRemaining: 0,
+    stages: [],
+  },
+  feedbackReplayTrend: {
+    exists: false,
+    health: "not_checked",
+    reports: 0,
+    cases: 0,
+    latestExpectedTop1Rate: "",
+    trendRankImprovements: 0,
+    trendRankRegressions: 0,
+    latestReplayReportPath: "",
+    latestTrendReportPath: "",
+  },
+};
+
+const defaultAgentContextAccessPolicy: AgentContextAccessPolicy = {
+  allowProviders: [],
+  denyProviders: [],
+  denyPathPatterns: [],
+  requireConsentProviders: [],
+  requireConsentPathPatterns: [],
+  auditMaxBytes: 0,
+  auditMaxRotatedFiles: 0,
+};
+
+const agentContextScopeOptions: Array<{ value: AgentContextScope; label: string }> = [
+  { value: "downloads", label: "Downloads" },
+  { value: "gitProjects", label: "Git projects" },
+  { value: "codexSessions", label: "Codex sessions" },
+  { value: "agentSessions", label: "Agent sessions" },
+  { value: "workflowDocs", label: "Workflow docs" },
+  { value: "all", label: "All" },
+];
+
+const agentContextModeOptions: Array<{ value: AgentContextMode; label: string }> = [
+  { value: "fast", label: "Fast" },
+  { value: "deep", label: "Deep" },
+  { value: "arena", label: "Arena" },
+];
+
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => loadInitialTheme());
   const [route, setRoute] = useState<Route>(() => loadInitialRoute());
@@ -579,6 +978,8 @@ export function App() {
   const [localSessions, setLocalSessions] = useState<LocalSessionsResult | null>(null);
   const [zedRemoteProjects, setZedRemoteProjects] = useState<ZedRemoteProjectsResult | null>(null);
   const [liveContextEntries, setLiveContextEntries] = useState<CodexContextEntries | null>(null);
+  const [agentContextPanel, setAgentContextPanel] = useState<AgentContextPanelResult | null>(null);
+  const [agentContextAccessPolicy, setAgentContextAccessPolicy] = useState<AgentContextAccessPolicyResult | null>(null);
   const [logs, setLogs] = useState<LogsResult | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsResult | null>(null);
   const [watcher, setWatcher] = useState<WatcherResult | null>(null);
@@ -784,6 +1185,96 @@ export function App() {
     return result;
   };
 
+  const refreshAgentContextPanel = async (silent = false) => {
+    const result = await run(() => call<AgentContextPanelResult>("load_agent_context_panel"));
+    if (result) {
+      setAgentContextPanel(result);
+      if (!silent || !isSuccessStatus(result.status)) showResultNotice("自动上下文", result, { silentSuccess: true });
+    }
+    return result;
+  };
+
+  const saveAgentContextPanelConfig = async (config: AgentContextPanelConfig) => {
+    const result = await run(() => call<AgentContextPanelResult>("save_agent_context_panel_config", { config }));
+    if (result) {
+      setAgentContextPanel(result);
+      showResultNotice("自动上下文", result);
+    }
+    return result;
+  };
+
+  const refreshAgentContextAccessPolicy = async (silent = false) => {
+    const result = await run(() => call<AgentContextAccessPolicyResult>("load_agent_context_access_policy"));
+    if (result) {
+      setAgentContextAccessPolicy(result);
+      if (!silent || !isSuccessStatus(result.status)) showResultNotice("权限策略", result, { silentSuccess: true });
+    }
+    return result;
+  };
+
+  const updateAgentContextAccessPolicy = async (request: AgentContextAccessPolicyPatch) => {
+    const result = await run(() => call<AgentContextAccessPolicyResult>("update_agent_context_access_policy", { request }));
+    if (result) {
+      setAgentContextAccessPolicy(result);
+      showResultNotice("权限策略", result);
+    }
+    return result;
+  };
+
+  const grantAgentContextAccessConsent = async (identifier: string, reason: string) => {
+    const result = await run(() =>
+      call<CommandResult<AgentContextAccessConsentState>>("grant_agent_context_access_consent", {
+        request: { identifier, reason },
+      }),
+    );
+    if (result) {
+      showResultNotice("读取授权", result);
+      await refreshAgentContextPanel(true);
+    }
+    return result;
+  };
+
+  const runAgentContextPanel = async (goal: string) => {
+    const result = await run(() => call<AgentContextPanelResult>("run_agent_context_panel", { request: { goal } }));
+    if (result) {
+      setAgentContextPanel(result);
+      showResultNotice("自动上下文", result);
+    }
+    return result;
+  };
+
+  const runAgentContextTaskPreflight = async (goal: string) => {
+    const result = await run(() => call<CommandResult<AgentContextTaskPreflight>>("run_agent_context_task_preflight", { request: { goal } }));
+    if (result) {
+      showResultNotice("自动上下文预检", result);
+      await refreshAgentContextPanel(true);
+    }
+    return result;
+  };
+
+  const runAgentContextV1Followup = async () => {
+    const result = await run(() => call<AgentContextV1FollowupResult>("run_agent_context_v1_followup"));
+    if (result) {
+      showResultNotice("v1 follow-up", result);
+      await refreshAgentContextPanel(true);
+    }
+    return result;
+  };
+
+  const openAgentContextFile = async (path: string) => {
+    const result = await run(() => call<CommandResult<Record<string, unknown>>>("open_agent_context_file", { path }));
+    if (result) showResultNotice("自动上下文", result, { silentSuccess: true });
+  };
+
+  const recordAgentContextFeedback = async (winner: string, reason: string) => {
+    const result = await run(() =>
+      call<CommandResult<Record<string, unknown>>>("record_agent_context_feedback", {
+        request: { winner, reason, statusPath: agentContextPanel?.statusPath ?? "" },
+      }),
+    );
+    if (result) showResultNotice("自动上下文反馈", result);
+  };
+
   const refreshLogs = async (silent = false) => {
     const result = await run(() => call<LogsResult>("read_latest_logs", { request: { lines: 240 } }));
     if (result) {
@@ -830,6 +1321,10 @@ export function App() {
       await refreshRelayFiles(true);
       await refreshLiveContextEntries(true);
     }
+    if (next === "agentContext") {
+      await refreshAgentContextPanel(true);
+      await refreshAgentContextAccessPolicy(true);
+    }
     if (next === "settings") await refreshSettings(true);
     if (next === "userScripts") {
       await refreshSettings(true);
@@ -852,6 +1347,7 @@ export function App() {
     if (result) {
       showNotice("启动任务", result.message, result.status);
       await refreshOverview(true);
+      await refreshAgentContextPanel(true);
     }
   };
 
@@ -860,6 +1356,7 @@ export function App() {
     if (result) {
       showNotice("重启 Codex++", result.message, result.status);
       await refreshOverview(true);
+      await refreshAgentContextPanel(true);
     }
   };
 
@@ -1330,6 +1827,8 @@ export function App() {
       await refreshSettings(true);
       await refreshRelay(true);
       await refreshProviderSyncTargets(true);
+      await refreshAgentContextPanel(true);
+      await refreshAgentContextAccessPolicy(true);
     })();
   }, []);
 
@@ -1451,6 +1950,16 @@ export function App() {
       refreshRelayFiles,
       refreshLiveContextEntries,
       syncLiveContextEntries,
+      refreshAgentContextPanel,
+      saveAgentContextPanelConfig,
+      refreshAgentContextAccessPolicy,
+      updateAgentContextAccessPolicy,
+      grantAgentContextAccessConsent,
+      runAgentContextPanel,
+      runAgentContextTaskPreflight,
+      runAgentContextV1Followup,
+      openAgentContextFile,
+      recordAgentContextFeedback,
       refreshAds,
       refreshScriptMarket,
       installMarketScript,
@@ -1493,7 +2002,7 @@ export function App() {
       disableWatcher: () => watcherAction("disable_watcher"),
       toggleTheme: () => setTheme((current) => (current === "dark" ? "light" : "dark")),
     }),
-    [route, launchForm, settingsForm, settings, removeOwnedData, update, logs, diagnostics, theme, relayFiles, localSessions, zedRemoteProjects, selectedProviderSyncTarget],
+    [route, launchForm, settingsForm, settings, removeOwnedData, update, logs, diagnostics, theme, relayFiles, localSessions, zedRemoteProjects, selectedProviderSyncTarget, agentContextPanel, agentContextAccessPolicy],
   );
   const hasUpdate = update?.updateAvailable === true;
 
@@ -1603,6 +2112,7 @@ export function App() {
               actions={actions}
             />
           ) : null}
+          {route === "agentContext" ? <AgentContextScreen panel={agentContextPanel} accessPolicy={agentContextAccessPolicy} actions={actions} /> : null}
           {route === "enhance" ? (
             <EnhanceScreen form={settingsForm} onFormChange={setSettingsForm} actions={actions} />
           ) : null}
@@ -1666,6 +2176,16 @@ type Actions = {
   refreshRelayFiles: () => Promise<RelayFilesResult | null>;
   refreshLiveContextEntries: () => Promise<LiveContextEntriesResult | null>;
   syncLiveContextEntries: (settings: BackendSettings, silent?: boolean) => Promise<LiveContextEntriesResult | null>;
+  refreshAgentContextPanel: () => Promise<AgentContextPanelResult | null>;
+  saveAgentContextPanelConfig: (config: AgentContextPanelConfig) => Promise<AgentContextPanelResult | null>;
+  refreshAgentContextAccessPolicy: () => Promise<AgentContextAccessPolicyResult | null>;
+  updateAgentContextAccessPolicy: (request: AgentContextAccessPolicyPatch) => Promise<AgentContextAccessPolicyResult | null>;
+  grantAgentContextAccessConsent: (identifier: string, reason: string) => Promise<CommandResult<AgentContextAccessConsentState> | null>;
+  runAgentContextPanel: (goal: string) => Promise<AgentContextPanelResult | null>;
+  runAgentContextTaskPreflight: (goal: string) => Promise<CommandResult<AgentContextTaskPreflight> | null>;
+  runAgentContextV1Followup: () => Promise<AgentContextV1FollowupResult | null>;
+  openAgentContextFile: (path: string) => Promise<void>;
+  recordAgentContextFeedback: (winner: string, reason: string) => Promise<void>;
   refreshAds: () => Promise<void>;
   refreshScriptMarket: () => Promise<void>;
   installMarketScript: (id: string) => Promise<void>;
@@ -3062,6 +3582,620 @@ function ContextScreen({
   );
 }
 
+function AgentContextScreen({
+  panel,
+  accessPolicy,
+  actions,
+}: {
+  panel: AgentContextPanelResult | null;
+  accessPolicy: AgentContextAccessPolicyResult | null;
+  actions: Actions;
+}) {
+  const [draft, setDraft] = useState<AgentContextPanelConfig>(panel?.config ?? defaultAgentContextPanelConfig);
+  const [goal, setGoal] = useState(panel?.status.lastGoal ?? "");
+  const [feedbackReason, setFeedbackReason] = useState("");
+  const [policyProviderDraft, setPolicyProviderDraft] = useState("");
+  const [policyPathDraft, setPolicyPathDraft] = useState("");
+  const [policyAuditMaxBytes, setPolicyAuditMaxBytes] = useState("");
+  const [policyAuditMaxRotatedFiles, setPolicyAuditMaxRotatedFiles] = useState("");
+  const status = panel?.status ?? defaultAgentContextPanelStatus;
+  const accessAudit = status.accessAudit ?? defaultAgentContextPanelStatus.accessAudit;
+  const semanticLaunchd = status.semanticLaunchd ?? defaultAgentContextPanelStatus.semanticLaunchd;
+  const semanticReadiness = status.semanticReadiness ?? defaultAgentContextPanelStatus.semanticReadiness;
+  const v1Acceptance = status.v1Acceptance ?? defaultAgentContextPanelStatus.v1Acceptance;
+  const v1StageStatus = status.v1StageStatus ?? defaultAgentContextPanelStatus.v1StageStatus;
+  const feedbackReplayTrend = status.feedbackReplayTrend ?? defaultAgentContextPanelStatus.feedbackReplayTrend;
+  const policy = accessPolicy?.policy ?? defaultAgentContextAccessPolicy;
+  const recentAuditEvents = accessAudit.recentEvents.slice(-5).reverse();
+  const hasPack = status.lastGeneratedPack.trim().length > 0;
+  const canRun = goal.trim().length > 0;
+  const v1AcceptanceEvidenceGateAt = v1Acceptance.nextEvidenceGateAt || v1Acceptance.nextGateAt;
+  const v1AcceptanceEvidenceGateReason = v1Acceptance.nextEvidenceGateReason || v1Acceptance.waitReason;
+  const v1AcceptanceSecondsUntilEvidenceGate =
+    v1Acceptance.secondsUntilNextEvidenceGate || v1Acceptance.secondsUntilNextGate;
+  const v1StageEvidenceGateAt = v1StageStatus.nextEvidenceGateAt || v1StageStatus.nextGateAt;
+  const v1StageEvidenceGateReason = v1StageStatus.nextEvidenceGateReason || v1StageStatus.waitReason;
+  const v1StageSecondsUntilEvidenceGate =
+    v1StageStatus.secondsUntilNextEvidenceGate || v1StageStatus.secondsUntilNextGate;
+
+  useEffect(() => {
+    setDraft(panel?.config ?? defaultAgentContextPanelConfig);
+  }, [panel]);
+
+  useEffect(() => {
+    if (status.lastGoal.trim().length > 0) setGoal(status.lastGoal);
+  }, [status.lastGoal]);
+
+  useEffect(() => {
+    setPolicyAuditMaxBytes(policy.auditMaxBytes ? String(policy.auditMaxBytes) : "");
+    setPolicyAuditMaxRotatedFiles(policy.auditMaxRotatedFiles ? String(policy.auditMaxRotatedFiles) : "");
+  }, [policy.auditMaxBytes, policy.auditMaxRotatedFiles]);
+
+  const savePatch = (patch: Partial<AgentContextPanelConfig>) => {
+    const next = { ...draft, ...patch };
+    setDraft(next);
+    void actions.saveAgentContextPanelConfig(next);
+  };
+
+  const saveDraft = () => {
+    void actions.saveAgentContextPanelConfig(draft);
+  };
+
+  const generateContext = async () => {
+    const saved = await actions.saveAgentContextPanelConfig(draft);
+    if (saved && isSuccessStatus(saved.status)) await actions.runAgentContextPanel(goal);
+  };
+
+  const generateTaskPreflight = async () => {
+    const saved = await actions.saveAgentContextPanelConfig(draft);
+    if (saved && isSuccessStatus(saved.status)) await actions.runAgentContextTaskPreflight(goal);
+  };
+
+  const recordFeedback = (winner: string) => {
+    void actions.recordAgentContextFeedback(winner, feedbackReason);
+    setFeedbackReason("");
+  };
+
+  const updatePolicy = async (request: AgentContextAccessPolicyPatch) => {
+    await actions.updateAgentContextAccessPolicy(request);
+  };
+
+  const addPolicyProvider = (kind: "allow" | "deny" | "consent") => {
+    const value = policyProviderDraft.trim();
+    if (!value) return;
+    setPolicyProviderDraft("");
+    if (kind === "allow") void updatePolicy({ allowProviders: [value] });
+    else if (kind === "deny") void updatePolicy({ denyProviders: [value] });
+    else void updatePolicy({ requireConsentProviders: [value] });
+  };
+
+  const addPolicyPath = (kind: "deny" | "consent") => {
+    const value = policyPathDraft.trim();
+    if (!value) return;
+    setPolicyPathDraft("");
+    void updatePolicy(kind === "deny" ? { denyPathPatterns: [value] } : { requireConsentPathPatterns: [value] });
+  };
+
+  const savePolicyAuditLimits = () => {
+    const auditMaxBytes = Number(policyAuditMaxBytes);
+    const auditMaxRotatedFiles = Number(policyAuditMaxRotatedFiles);
+    void updatePolicy({
+      auditMaxBytes: Number.isFinite(auditMaxBytes) && auditMaxBytes >= 0 ? Math.floor(auditMaxBytes) : null,
+      auditMaxRotatedFiles: Number.isFinite(auditMaxRotatedFiles) && auditMaxRotatedFiles >= 0 ? Math.floor(auditMaxRotatedFiles) : null,
+    });
+  };
+
+  const grantConsentForEvent = (event: AgentContextAccessAuditEvent) => {
+    const identifier = agentContextConsentIdentifier(event);
+    if (!identifier) return;
+    const reason = `Approved from Codex++ panel${goal.trim() ? ` for: ${goal.trim()}` : ""}`;
+    void actions.grantAgentContextAccessConsent(identifier, reason);
+  };
+
+  return (
+    <Panel fill>
+      <CardHead title="Codex++ Context Panel" detail="控制 Codex++ 调用前的自动上下文包。" />
+      <CardContent>
+        <div className="agent-context-panel">
+          <div className="agent-context-section">
+            <FeatureToggle
+              checked={draft.autoContext}
+              detail={draft.autoContext ? "有任务目标时会先尝试生成 context pack。" : "只刷新面板状态，不调用 resolver。"}
+              onChange={(value) => savePatch({ autoContext: value })}
+              title="Auto Context"
+            />
+          </div>
+
+          <div className="agent-context-section">
+            <div className="agent-context-label">Scope</div>
+            <div className="agent-context-options six">
+              {agentContextScopeOptions.map((option) => (
+                <button
+                  className={draft.scope === option.value ? "active" : ""}
+                  key={option.value}
+                  onClick={() => savePatch({ scope: option.value })}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="agent-context-section">
+            <div className="agent-context-label">Mode</div>
+            <div className="agent-context-options">
+              {agentContextModeOptions.map((option) => (
+                <button
+                  className={draft.mode === option.value ? "active" : ""}
+                  key={option.value}
+                  onClick={() => savePatch({ mode: option.value })}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="agent-context-path-editor">
+            <Field label="agent-context root">
+              <Input
+                value={draft.agentContextRoot}
+                onChange={(event) => setDraft((current) => ({ ...current, agentContextRoot: event.currentTarget.value }))}
+              />
+            </Field>
+            <Field label="agent-context bin">
+              <Input
+                value={draft.agentContextBin}
+                onChange={(event) => setDraft((current) => ({ ...current, agentContextBin: event.currentTarget.value }))}
+              />
+            </Field>
+            <Toolbar>
+              <Button onClick={saveDraft} variant="secondary">
+                <Save className="h-4 w-4" />
+                保存路径
+              </Button>
+              <Button onClick={() => void actions.refreshAgentContextPanel()} variant="outline">
+                <RefreshCw className="h-4 w-4" />
+                刷新状态
+              </Button>
+            </Toolbar>
+          </div>
+
+          <div className="agent-context-runner">
+            <Field label="任务目标">
+              <Textarea
+                value={goal}
+                onChange={(event) => setGoal(event.currentTarget.value)}
+                placeholder="例如：告诉我本地所有项目里如何构建个人推荐系统"
+              />
+            </Field>
+            <Toolbar>
+              <Button disabled={!canRun} onClick={() => void generateContext()}>
+                <RefreshCw className="h-4 w-4" />
+                生成上下文包
+              </Button>
+              <Button disabled={!canRun} onClick={() => void generateTaskPreflight()} variant="secondary">
+                <FileCode2 className="h-4 w-4" />
+                任务预检
+              </Button>
+            </Toolbar>
+          </div>
+
+          <div className="agent-context-status">
+            <div>
+              <span>Last status</span>
+              <Badge status={status.lastStatus || "not_checked"} />
+            </div>
+            <p>{status.lastMessage || "尚未生成上下文包。"}</p>
+            {status.lastGoal.trim().length > 0 ? <small>Goal: {status.lastGoal}</small> : null}
+            <small>{agentContextGeneratedAt(status.lastGeneratedAtMs)}</small>
+          </div>
+
+          <div className="agent-context-status">
+            <div>
+              <span>Semantic maintenance</span>
+              <Badge status={semanticLaunchd.health || "not_checked"} />
+            </div>
+            <p>{semanticLaunchd.installed ? "LaunchAgent 文件已安装。" : "LaunchAgent 尚未安装；后台语义索引需要手动启用。"}</p>
+            <small>plist: {semanticLaunchd.plistPath || "未记录路径"}</small>
+            <small>script: {semanticLaunchd.scriptPath || "未记录路径"}</small>
+            {semanticLaunchd.latestMaintainReport ? <small>maintain: {semanticLaunchd.latestMaintainReport}</small> : null}
+            {semanticLaunchd.latestPruneReport ? <small>prune: {semanticLaunchd.latestPruneReport}</small> : null}
+            {semanticLaunchd.latestLaunchdActivityAt ? <small>latest activity: {semanticLaunchd.latestLaunchdActivityAt}</small> : null}
+            {semanticLaunchd.nextExpectedRunAfter ? <small>next run: {semanticLaunchd.nextExpectedRunAfter}</small> : null}
+            {semanticLaunchd.naturalRunOverdue ? <small>overdue: {semanticLaunchd.secondsOverdue}s</small> : null}
+            {semanticLaunchd.monitorPath ? <small>monitor: {semanticLaunchd.monitorPath}</small> : null}
+          </div>
+
+          <div className="agent-context-status">
+            <div>
+              <span>Semantic readiness</span>
+              <Badge status={semanticReadiness.status || "not_checked"} />
+            </div>
+            <p>
+              {semanticReadiness.exists
+                ? semanticReadiness.ready
+                  ? "后台语义索引已满足当前 readiness gate。"
+                  : semanticReadiness.nextAction || "后台语义索引还没有满足 readiness gate。"
+                : "尚未生成 semantic-readiness 报告。"}
+            </p>
+            <small>chunks: {semanticReadiness.semanticChunks}</small>
+            <small>monitor snapshots: {semanticReadiness.monitorSnapshots}</small>
+            <small>trend days: {semanticReadiness.trendDaysObserved}</small>
+            <small>days remaining: {semanticReadiness.trendDaysRemaining}</small>
+            {semanticReadiness.reason ? <small>reason: {semanticReadiness.reason}</small> : null}
+            {semanticReadiness.nextMonitorDueAt ? <small>next monitor: {semanticReadiness.nextMonitorDueAt}</small> : null}
+            {semanticReadiness.earliestMultiDayCheckAfter ? <small>earliest multi-day check: {semanticReadiness.earliestMultiDayCheckAfter}</small> : null}
+            {semanticReadiness.reportMarkdownPath ? <small>report: {semanticReadiness.reportMarkdownPath}</small> : null}
+          </div>
+
+          <div className="agent-context-status">
+            <div>
+              <span>V1 acceptance</span>
+              <Badge status={v1Acceptance.status || "not_checked"} />
+            </div>
+            <p>
+              {v1Acceptance.exists
+                ? v1Acceptance.ready
+                  ? "Agent Context Runtime v1 验收证据已完整。"
+                  : v1Acceptance.decision || "v1 验收仍有未完成证据。"
+                : "尚未生成 v1 acceptance 总账。"}
+            </p>
+            {v1Acceptance.createdAt ? <small>created: {v1Acceptance.createdAt}</small> : null}
+            {v1Acceptance.reportMarkdownPath ? <small>report: {v1Acceptance.reportMarkdownPath}</small> : null}
+            {v1Acceptance.followupMarkdownPath ? <small>follow-up: {v1Acceptance.followupMarkdownPath}</small> : null}
+            {v1Acceptance.earliestRecheckAfter ? <small>earliest recheck: {v1Acceptance.earliestRecheckAfter}</small> : null}
+            {v1Acceptance.nextMonitorDueAt ? <small>next monitor: {v1Acceptance.nextMonitorDueAt}</small> : null}
+            {v1Acceptance.trendDaysRemaining > 0 ? <small>trend days remaining: {v1Acceptance.trendDaysRemaining}</small> : null}
+            {v1AcceptanceEvidenceGateReason ? <small>evidence wait reason: {v1AcceptanceEvidenceGateReason}</small> : null}
+            {v1AcceptanceEvidenceGateAt ? <small>next evidence gate: {v1AcceptanceEvidenceGateAt}</small> : null}
+            {v1AcceptanceSecondsUntilEvidenceGate > 0 ? (
+              <small>seconds until evidence gate: {v1AcceptanceSecondsUntilEvidenceGate}</small>
+            ) : null}
+            {v1Acceptance.acceptanceWaitReason ? (
+              <small>acceptance wait reason: {v1Acceptance.acceptanceWaitReason}</small>
+            ) : null}
+            {v1Acceptance.acceptanceGateAt ? <small>acceptance gate: {v1Acceptance.acceptanceGateAt}</small> : null}
+            {v1Acceptance.secondsUntilAcceptanceGate > 0 ? (
+              <small>seconds until acceptance gate: {v1Acceptance.secondsUntilAcceptanceGate}</small>
+            ) : null}
+            <small>can recheck now: {String(v1Acceptance.canRecheckNow)}</small>
+            {v1Acceptance.nextCommands.length > 0 ? <small>next: {v1Acceptance.nextCommands[0]}</small> : null}
+            <Toolbar>
+              <Button onClick={() => void actions.runAgentContextV1Followup()} variant="secondary">
+                <RefreshCw className="h-4 w-4" />
+                运行复验 gate
+              </Button>
+              {v1Acceptance.followupMarkdownPath ? (
+                <Button onClick={() => void actions.openAgentContextFile(v1Acceptance.followupMarkdownPath)} variant="outline">
+                  <FileCode2 className="h-4 w-4" />
+                  打开复验计划
+                </Button>
+              ) : null}
+            </Toolbar>
+          </div>
+
+          <div className="agent-context-status">
+            <div>
+              <span>V1 stage status</span>
+              <Badge status={v1StageStatus.status || "not_checked"} />
+            </div>
+            <p>
+              {v1StageStatus.exists
+                ? v1StageStatus.ready
+                  ? "所有 v1 阶段已通过。"
+                  : v1StageStatus.decision || "v1 阶段状态仍有等待项。"
+                : "尚未生成 v1 stage status 报告。"}
+            </p>
+            <small>
+              stages: {v1StageStatus.ok} ok / {v1StageStatus.waitingForTime} waiting / {v1StageStatus.warning} warning /{" "}
+              {v1StageStatus.failed} failed
+            </small>
+            {v1StageEvidenceGateReason ? <small>evidence wait reason: {v1StageEvidenceGateReason}</small> : null}
+            {v1StageEvidenceGateAt ? <small>next evidence gate: {v1StageEvidenceGateAt}</small> : null}
+            {v1StageSecondsUntilEvidenceGate > 0 ? (
+              <small>seconds until evidence gate: {v1StageSecondsUntilEvidenceGate}</small>
+            ) : null}
+            {v1StageStatus.acceptanceWaitReason ? <small>acceptance wait reason: {v1StageStatus.acceptanceWaitReason}</small> : null}
+            {v1StageStatus.acceptanceGateAt ? <small>acceptance gate: {v1StageStatus.acceptanceGateAt}</small> : null}
+            {v1StageStatus.trendDaysRemaining > 0 ? <small>trend days remaining: {v1StageStatus.trendDaysRemaining}</small> : null}
+            {v1StageStatus.reportMarkdownPath ? <small>report: {v1StageStatus.reportMarkdownPath}</small> : null}
+            {v1StageStatus.stages.length > 0 ? (
+              <div className="agent-context-stage-list">
+                {v1StageStatus.stages.slice(0, 6).map((stage) => (
+                  <small key={stage.id || stage.title}>
+                    {stage.title || stage.id}: {stage.status} ({stage.progress}%)
+                  </small>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="agent-context-status">
+            <div>
+              <span>Feedback replay</span>
+              <Badge status={feedbackReplayTrend.health || "not_checked"} />
+            </div>
+            <p>
+              {feedbackReplayTrend.exists
+                ? `Replay 历史 ${feedbackReplayTrend.reports} 份，${feedbackReplayTrend.cases} 个 case。`
+                : "尚未发现 feedback replay 历史。"}
+            </p>
+            {feedbackReplayTrend.latestExpectedTop1Rate ? <small>latest top1 rate: {feedbackReplayTrend.latestExpectedTop1Rate}</small> : null}
+            <small>rank improvements: {feedbackReplayTrend.trendRankImprovements}</small>
+            <small>rank regressions: {feedbackReplayTrend.trendRankRegressions}</small>
+            {feedbackReplayTrend.latestReplayReportPath ? <small>latest replay: {feedbackReplayTrend.latestReplayReportPath}</small> : null}
+            {feedbackReplayTrend.latestTrendReportPath ? <small>trend report: {feedbackReplayTrend.latestTrendReportPath}</small> : null}
+          </div>
+
+          <div className="agent-context-files">
+            <AgentContextFileRow label="codex_preflight.md" path={status.lastCodexPreflightMd} onOpen={actions.openAgentContextFile} />
+            <AgentContextFileRow label="context.md" path={status.lastGeneratedPack} onOpen={actions.openAgentContextFile} />
+            <AgentContextFileRow label="sources.jsonl" path={status.lastSourcesJsonl} onOpen={actions.openAgentContextFile} />
+            <AgentContextFileRow label="manifest.json" path={status.lastManifestJson} onOpen={actions.openAgentContextFile} />
+            <AgentContextFileRow label="resolution_plan.json" path={status.lastResolutionPlanJson} onOpen={actions.openAgentContextFile} />
+          </div>
+
+          <div className="agent-context-access-policy">
+            <div className="agent-context-audit-head">
+              <div>
+                <div className="agent-context-label">Access Policy</div>
+                <small>{accessPolicy?.policyPath || "config/access_policy.json 未加载"}</small>
+              </div>
+              <Button onClick={() => void actions.refreshAgentContextAccessPolicy()} size="sm" variant="outline">
+                <RefreshCw className="h-4 w-4" />
+                刷新
+              </Button>
+            </div>
+            <div className="agent-context-policy-editor">
+              <Field label="provider">
+                <Input
+                  value={policyProviderDraft}
+                  onChange={(event) => setPolicyProviderDraft(event.currentTarget.value)}
+                  placeholder="例如 claude_session"
+                />
+              </Field>
+              <Toolbar>
+                <Button disabled={!policyProviderDraft.trim()} onClick={() => addPolicyProvider("allow")} size="sm" variant="secondary">
+                  <Plus className="h-4 w-4" />
+                  allow
+                </Button>
+                <Button disabled={!policyProviderDraft.trim()} onClick={() => addPolicyProvider("deny")} size="sm" variant="outline">
+                  <Plus className="h-4 w-4" />
+                  deny
+                </Button>
+                <Button disabled={!policyProviderDraft.trim()} onClick={() => addPolicyProvider("consent")} size="sm" variant="outline">
+                  <Plus className="h-4 w-4" />
+                  require consent
+                </Button>
+              </Toolbar>
+              <Field label="path pattern">
+                <Input
+                  value={policyPathDraft}
+                  onChange={(event) => setPolicyPathDraft(event.currentTarget.value)}
+                  placeholder="例如 */Secrets/*"
+                />
+              </Field>
+              <Toolbar>
+                <Button disabled={!policyPathDraft.trim()} onClick={() => addPolicyPath("deny")} size="sm" variant="secondary">
+                  <Plus className="h-4 w-4" />
+                  deny path
+                </Button>
+                <Button disabled={!policyPathDraft.trim()} onClick={() => addPolicyPath("consent")} size="sm" variant="outline">
+                  <Plus className="h-4 w-4" />
+                  require consent path
+                </Button>
+              </Toolbar>
+            </div>
+            <div className="agent-context-policy-limits">
+              <Field label="audit max bytes">
+                <Input
+                  inputMode="numeric"
+                  value={policyAuditMaxBytes}
+                  onChange={(event) => setPolicyAuditMaxBytes(event.currentTarget.value)}
+                />
+              </Field>
+              <Field label="rotated files">
+                <Input
+                  inputMode="numeric"
+                  value={policyAuditMaxRotatedFiles}
+                  onChange={(event) => setPolicyAuditMaxRotatedFiles(event.currentTarget.value)}
+                />
+              </Field>
+              <Toolbar>
+                <Button onClick={savePolicyAuditLimits} size="sm" variant="outline">
+                  <Save className="h-4 w-4" />
+                  保存轮转
+                </Button>
+              </Toolbar>
+            </div>
+            <AgentContextPolicyList
+              label="Allow providers"
+              values={policy.allowProviders}
+              empty="未设置 allow provider。"
+              onRemove={(value) => void updatePolicy({ removeAllowProviders: [value] })}
+            />
+            <AgentContextPolicyList
+              label="Deny providers"
+              values={policy.denyProviders}
+              empty="未设置 deny provider。"
+              onRemove={(value) => void updatePolicy({ removeDenyProviders: [value] })}
+            />
+            <AgentContextPolicyList
+              label="Deny path patterns"
+              values={policy.denyPathPatterns}
+              empty="未设置 deny path pattern。"
+              onRemove={(value) => void updatePolicy({ removeDenyPathPatterns: [value] })}
+            />
+            <AgentContextPolicyList
+              label="Require consent providers"
+              values={policy.requireConsentProviders}
+              empty="未设置 require-consent provider。"
+              onRemove={(value) => void updatePolicy({ removeRequireConsentProviders: [value] })}
+            />
+            <AgentContextPolicyList
+              label="Require consent path patterns"
+              values={policy.requireConsentPathPatterns}
+              empty="未设置 require-consent path pattern。"
+              onRemove={(value) => void updatePolicy({ removeRequireConsentPathPatterns: [value] })}
+            />
+          </div>
+
+          <div className="agent-context-access-audit">
+            <div className="agent-context-audit-head">
+              <div>
+                <div className="agent-context-label">Access Audit</div>
+                <small>resolver / MCP 最近访问记录</small>
+              </div>
+              <Badge status={accessAudit.recentDenied > 0 ? "denied" : "allowed"} />
+            </div>
+            <div className="agent-context-audit-summary">
+              <div>
+                <span>Total</span>
+                <strong>{accessAudit.eventsTotal}</strong>
+              </div>
+              <div>
+                <span>Allowed</span>
+                <strong>{accessAudit.recentAllowed}</strong>
+              </div>
+              <div>
+                <span>Denied</span>
+                <strong>{accessAudit.recentDenied}</strong>
+              </div>
+              <div>
+                <span>Filtered</span>
+                <strong>{accessAudit.recentFiltered}</strong>
+              </div>
+              <div>
+                <span>Consent</span>
+                <strong>{accessAudit.recentConsentRequired}</strong>
+              </div>
+            </div>
+            {accessAudit.lastDenied ? (
+              <div className="agent-context-audit-alert">
+                <span>Last denied</span>
+                <code>{accessAudit.lastDenied.identifier || accessAudit.lastDenied.path || "unknown"}</code>
+                <small>{accessAudit.lastDenied.reason || "no reason"}</small>
+              </div>
+            ) : null}
+            <div className="agent-context-audit-list">
+              {recentAuditEvents.length > 0 ? (
+                recentAuditEvents.map((event, index) => (
+                  <AgentContextAuditRow event={event} key={`${event.createdAt}-${event.identifier}-${index}`} onGrant={grantConsentForEvent} />
+                ))
+              ) : (
+                <p>暂无审计事件。</p>
+              )}
+            </div>
+            <AgentContextFileRow label="access_audit.jsonl" path={accessAudit.auditPath} onOpen={actions.openAgentContextFile} />
+          </div>
+
+          <div className="agent-context-feedback">
+            <Textarea
+              value={feedbackReason}
+              onChange={(event) => setFeedbackReason(event.currentTarget.value)}
+              placeholder="反馈备注"
+            />
+            <Toolbar>
+              <Button disabled={!hasPack} onClick={() => recordFeedback("useful")} variant="secondary">
+                记录有用
+              </Button>
+              <Button disabled={!hasPack} onClick={() => recordFeedback("irrelevant")} variant="outline">
+                记录不相关
+              </Button>
+            </Toolbar>
+          </div>
+
+          <div className="relay-context-summary">
+            配置：{panel?.configPath ?? "未加载"}；状态：{panel?.statusPath ?? "未加载"}；反馈：{panel?.feedbackPath ?? "未加载"}
+          </div>
+        </div>
+      </CardContent>
+    </Panel>
+  );
+}
+
+function AgentContextPolicyList({
+  label,
+  values,
+  empty,
+  onRemove,
+}: {
+  label: string;
+  values: string[];
+  empty: string;
+  onRemove: (value: string) => void;
+}) {
+  return (
+    <div className="agent-context-policy-list">
+      <div className="agent-context-policy-list-head">{label}</div>
+      {values.length > 0 ? (
+        <div className="agent-context-policy-chips">
+          {values.map((value) => (
+            <div className="agent-context-policy-chip" key={`${label}-${value}`}>
+              <code>{value}</code>
+              <Button onClick={() => onRemove(value)} size="sm" variant="ghost">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p>{empty}</p>
+      )}
+    </div>
+  );
+}
+
+function AgentContextAuditRow({ event, onGrant }: { event: AgentContextAccessAuditEvent; onGrant: (event: AgentContextAccessAuditEvent) => void }) {
+  const target = event.identifier || event.path || event.sourceId || event.sourceChunkId || "unknown";
+  const detail = [event.provider, event.reason].filter(Boolean).join(" · ") || "无备注";
+  const canGrant = event.decision === "consent_required" && Boolean(agentContextConsentIdentifier(event));
+  return (
+    <div className="agent-context-audit-row">
+      <Badge status={event.decision || "unknown"} />
+      <div>
+        <strong>{event.action || "access"}</strong>
+        <code>{target}</code>
+        <small>{detail}</small>
+      </div>
+      {canGrant ? (
+        <Button onClick={() => onGrant(event)} size="sm" variant="secondary">
+          <ShieldCheck className="h-4 w-4" />
+          grant
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function agentContextConsentIdentifier(event: AgentContextAccessAuditEvent): string {
+  return event.identifier || event.sourceChunkId || event.sourceId || event.path || "";
+}
+
+function AgentContextFileRow({
+  label,
+  path,
+  onOpen,
+}: {
+  label: string;
+  path: string;
+  onOpen: (path: string) => Promise<void>;
+}) {
+  const hasPath = path.trim().length > 0;
+  return (
+    <div className="agent-context-file-row">
+      <span>{label}</span>
+      <code>{hasPath ? path : "未生成"}</code>
+      <Button disabled={!hasPath} onClick={() => void onOpen(path)} size="sm" variant="outline">
+        打开
+      </Button>
+    </div>
+  );
+}
+
 function RelayProfileEditor({
   profile,
   form,
@@ -3854,6 +4988,7 @@ function routeSubtitle(route: Route) {
     relay: "管理 API 供应商、协议、Key 与配置文件",
     sessions: "查看、删除和修复 Codex 本地会话",
     context: "独立管理 MCP、Skills、Plugins",
+    agentContext: "管理 Warp 本地 Codex 的自动上下文包",
     enhance: "会话删除、导出、项目移动和脚本能力",
     zedRemote: "管理 Codex SSH 项目并加入 Zed workspace",
     userScripts: "内置和用户自定义脚本清单",
@@ -4480,22 +5615,34 @@ function statusLabel(status: string) {
     failed: "失败",
     archived: "已归档",
     accepted: "已受理",
+    allowed: "允许",
+    denied: "已拦截",
+    filtered: "已过滤",
     not_checked: "未检查",
     not_implemented: "未实现",
     disabled: "已禁用",
+    degraded: "异常",
+    not_installed: "未安装",
     unknown: "未知",
   };
   return labels[status] ?? status;
 }
 
 function statusClass(status: string) {
-  if (["found", "installed", "ok", "running"].includes(status)) return "good";
-  if (["failed", "missing"].includes(status)) return "bad";
+  if (["found", "installed", "ok", "running", "allowed"].includes(status)) return "good";
+  if (["failed", "missing", "denied", "degraded"].includes(status)) return "bad";
   return "warn";
 }
 
 function isSuccessStatus(status?: Status) {
   return status === "ok" || status === "accepted";
+}
+
+function agentContextGeneratedAt(value: number) {
+  if (!value) return "未记录生成时间";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "生成时间不可读";
+  return date.toLocaleString();
 }
 
 function healthItems(overview: OverviewResult | null) {

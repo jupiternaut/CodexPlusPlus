@@ -41,7 +41,7 @@
   const chatsSortRefreshIntervalMs = 1500;
   const chatsSortDbRefreshIntervalMs = 5000;
   const styleId = "codex-delete-style";
-  const codexDeleteStyleVersion = "14";
+  const codexDeleteStyleVersion = "15";
   const codexPlusMenuId = "codex-plus-menu";
   const codexPlusMenuFloatingClass = "codex-plus-menu-floating";
   const codexDeleteVersion = "7";
@@ -62,9 +62,11 @@
   const codexPlusSettingsKey = "codexPlusSettings";
   const codexThreadScrollKey = "codexThreadScroll";
   const codexThreadServiceTierKey = "codexThreadServiceTierOverrides";
+  const codexAgentContextHintMarker = "[Codex++ Auto Context]";
   const codexThreadServiceTierMaxEntries = 120;
   const codexThreadServiceTierDraftBindWindowMs = 60 * 1000;
   const codexServiceTierRequestOverrideVersion = "3";
+  const codexAgentContextRequestOverrideVersion = "1";
   const codexAppServerModelRequestPatchVersion = "1";
   const codexPluginMarketplaceUnlockVersion = "10";
   const codexThreadScrollMaxEntries = 120;
@@ -659,35 +661,69 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(0,0,0,.45);
+        background:
+          radial-gradient(circle at 18% 8%, rgba(255,255,255,.28), transparent 28%),
+          rgba(30,34,38,.28);
         pointer-events: auto;
         -webkit-app-region: no-drag;
       }
       .codex-plus-modal-content {
+        --codex-plus-glass-panel: rgba(235,238,240,.72);
+        --codex-plus-glass-card: rgba(255,255,255,.34);
+        --codex-plus-glass-card-strong: rgba(255,255,255,.48);
+        --codex-plus-glass-border: rgba(255,255,255,.52);
+        --codex-plus-glass-hairline: rgba(74,85,96,.16);
+        --codex-plus-glass-text: rgba(28,31,35,.94);
+        --codex-plus-glass-muted: rgba(75,80,88,.72);
+        --codex-plus-glass-faint: rgba(92,98,106,.58);
+        --codex-plus-glass-teal: #39b6c3;
+        --codex-plus-glass-teal-strong: #17b890;
+        --codex-plus-glass-amber: #d99a3a;
+        position: relative;
         width: min(520px, calc(100vw - 48px));
         max-height: min(680px, calc(100vh - 40px));
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        border: 1px solid rgba(255,255,255,.12);
-        border-radius: 18px;
-        background: #2b2b2b;
-        color: #f3f4f6;
+        border: 1px solid var(--codex-plus-glass-border);
+        border-radius: 24px;
+        background:
+          radial-gradient(circle at 12% 0%, rgba(255,255,255,.72), transparent 35%),
+          radial-gradient(circle at 88% 16%, rgba(57,182,195,.22), transparent 28%),
+          linear-gradient(145deg, rgba(245,247,248,.72), var(--codex-plus-glass-panel));
+        -webkit-backdrop-filter: blur(34px) saturate(1.45);
+        backdrop-filter: blur(34px) saturate(1.45);
+        color: var(--codex-plus-glass-text);
         font: 14px system-ui, sans-serif;
-        box-shadow: 0 24px 80px rgba(0,0,0,.45);
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.78),
+          inset 0 -1px 0 rgba(255,255,255,.24),
+          0 28px 90px rgba(20,24,28,.34);
         pointer-events: auto;
         -webkit-app-region: no-drag;
       }
-      .codex-plus-modal-content[data-codex-plus-active-tab="support"] { width: min(820px, calc(100vw - 48px)); }
+      .codex-plus-modal-content::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.46), transparent 30%),
+          radial-gradient(circle at 10% 100%, rgba(255,255,255,.22), transparent 36%);
+      }
+      .codex-plus-modal-content[data-codex-plus-active-tab="usage"] { width: min(620px, calc(100vw - 40px)); }
       .codex-plus-modal-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         padding: 16px 20px 8px;
         flex: 0 0 auto;
+        position: relative;
+        z-index: 1;
         -webkit-app-region: no-drag;
       }
-      .codex-plus-modal-title { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 650; }
+      .codex-plus-modal-title { display: flex; align-items: center; gap: 8px; font-size: 19px; font-weight: 740; letter-spacing: -.02em; }
       .codex-plus-backend-indicator { width: 9px; height: 9px; border-radius: 999px; background: #a1a1aa; display: inline-block; }
       .codex-plus-backend-indicator[data-status="ok"] { background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,.75); }
       .codex-plus-backend-indicator[data-status="failed"] { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,.75); }
@@ -695,7 +731,7 @@
       .codex-plus-modal-close {
         border: 0;
         background: transparent;
-        color: #d1d5db;
+        color: var(--codex-plus-glass-muted);
         font-size: 20px;
         cursor: pointer;
         pointer-events: auto;
@@ -707,38 +743,48 @@
         overflow-y: auto;
         overscroll-behavior: contain;
         scrollbar-gutter: stable;
-        padding: 4px 20px 16px;
+        padding: 8px 20px 18px;
+        position: relative;
+        z-index: 1;
         scrollbar-width: thin;
-        scrollbar-color: rgba(255,255,255,.28) transparent;
+        scrollbar-color: rgba(74,85,96,.24) transparent;
       }
       .codex-plus-modal-body::-webkit-scrollbar { width: 10px; }
       .codex-plus-modal-body::-webkit-scrollbar-track { background: transparent; }
       .codex-plus-modal-body::-webkit-scrollbar-thumb {
         border: 2px solid transparent;
         border-radius: 999px;
-        background: rgba(255,255,255,.28);
+        background: rgba(74,85,96,.24);
         background-clip: padding-box;
       }
-      .codex-plus-modal-body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.38); background-clip: padding-box; }
+      .codex-plus-modal-body::-webkit-scrollbar-thumb:hover { background: rgba(74,85,96,.34); background-clip: padding-box; }
       .codex-plus-row {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
         gap: 12px;
-        padding: 10px 0;
-        border-top: 1px solid rgba(255,255,255,.1);
+        padding: 13px 14px;
+        border: 1px solid var(--codex-plus-glass-border);
+        border-radius: 18px;
+        background:
+          linear-gradient(150deg, var(--codex-plus-glass-card-strong), var(--codex-plus-glass-card)),
+          radial-gradient(circle at 0% 0%, rgba(57,182,195,.14), transparent 40%);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 12px 28px rgba(30,35,40,.08);
+        -webkit-backdrop-filter: blur(20px) saturate(1.22);
+        backdrop-filter: blur(20px) saturate(1.22);
       }
-      .codex-plus-row:first-child { border-top: 0; }
-      .codex-plus-row-title { font-weight: 550; line-height: 1.35; }
-      .codex-plus-row-description { margin-top: 2px; color: #a1a1aa; font-size: 12px; line-height: 1.4; }
-      .codex-plus-model-compat-warning { margin-top: 6px; color: #fbbf24; font-size: 12px; line-height: 1.45; }
+      .codex-plus-row:hover { border-color: rgba(255,255,255,.72); background: linear-gradient(150deg, rgba(255,255,255,.58), rgba(255,255,255,.36)); }
+      .codex-plus-row-title { color: var(--codex-plus-glass-text); font-weight: 720; line-height: 1.35; letter-spacing: -.01em; }
+      .codex-plus-row-description { margin-top: 3px; color: var(--codex-plus-glass-muted); font-size: 12px; line-height: 1.45; }
+      .codex-plus-model-compat-warning { margin-top: 6px; color: #a56a10; font-size: 12px; line-height: 1.45; }
       .codex-plus-toggle {
         width: 42px;
         height: 24px;
-        border: 0;
+        border: 1px solid rgba(74,85,96,.18);
         border-radius: 999px;
-        background: #52525b;
+        background: rgba(94,98,110,.24);
         padding: 2px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.34);
       }
       .codex-plus-toggle span {
         display: block;
@@ -746,7 +792,8 @@
         height: 20px;
         border-radius: 999px;
         background: white;
-        transition: transform .12s ease;
+        box-shadow: 0 2px 10px rgba(20,24,28,.22);
+        transition: transform .12s ease, background-color .12s ease;
       }
       .codex-plus-toggle,
       .codex-plus-action-button,
@@ -755,9 +802,9 @@
         flex-shrink: 0;
         align-self: center;
       }
-      .codex-plus-toggle[data-enabled="true"] { background: #10a37f; }
+      .codex-plus-toggle[data-enabled="true"] { border-color: rgba(23,184,144,.42); background: linear-gradient(90deg, var(--codex-plus-glass-teal-strong), #39c8b0); }
       .codex-plus-toggle[data-enabled="true"] span { transform: translateX(18px); }
-      .codex-plus-toggle[data-relay-unneeded="true"] { width: 72px; cursor: default; background: rgba(16,163,127,.16); color: #6ee7b7; }
+      .codex-plus-toggle[data-relay-unneeded="true"] { width: 72px; cursor: default; background: rgba(23,184,144,.18); color: #08745c; }
       .codex-plus-toggle[data-relay-unneeded="true"] span { display: none; }
       .codex-plus-toggle[data-relay-unneeded="true"]::after { content: "无需开启"; font-size: 12px; font-weight: 650; line-height: 1; }
       .codex-plus-width-control { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 176px; align-self: center; }
@@ -765,24 +812,24 @@
         width: 78px;
         height: 26px;
         box-sizing: border-box;
-        border: 1px solid rgba(255,255,255,.18);
+        border: 1px solid rgba(74,85,96,.18);
         border-radius: 7px;
-        background: rgba(255,255,255,.08);
-        color: #f3f4f6;
+        background: rgba(255,255,255,.34);
+        color: var(--codex-plus-glass-text);
         font: 12px system-ui, sans-serif;
         padding: 0 8px;
       }
       .codex-plus-width-input:disabled { opacity: .55; cursor: not-allowed; }
       .codex-plus-service-tier-control { display: grid; gap: 6px; min-width: 316px; justify-items: end; align-self: center; }
-      .codex-plus-service-tier-status { color: #a1a1aa; font-size: 12px; line-height: 1.3; text-align: right; }
-      .codex-plus-service-tier-status[data-status="ok"] { color: #34d399; }
-      .codex-plus-service-tier-status[data-status="failed"] { color: #f87171; }
-      .codex-plus-service-tier-status[data-status="unsupported"] { color: #fbbf24; }
+      .codex-plus-service-tier-status { color: var(--codex-plus-glass-faint); font-size: 12px; line-height: 1.3; text-align: right; }
+      .codex-plus-service-tier-status[data-status="ok"] { color: #0f8e70; }
+      .codex-plus-service-tier-status[data-status="failed"] { color: #c2413f; }
+      .codex-plus-service-tier-status[data-status="unsupported"] { color: #a56a10; }
       .codex-plus-service-tier-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
       .codex-plus-service-tier-thread-actions { opacity: .88; align-items: center; }
-      .codex-plus-service-tier-thread-label { color: #a1a1aa; font: 12px/1.2 system-ui, sans-serif; white-space: nowrap; }
-      .codex-plus-service-tier-button { border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: #3f3f46; color: #f3f4f6; font: 12px system-ui, sans-serif; padding: 5px 8px; white-space: nowrap; }
-      .codex-plus-service-tier-button[data-active="true"] { border-color: #10a37f; background: rgba(16,163,127,.22); color: #6ee7b7; }
+      .codex-plus-service-tier-thread-label { color: var(--codex-plus-glass-faint); font: 12px/1.2 system-ui, sans-serif; white-space: nowrap; }
+      .codex-plus-service-tier-button { border: 1px solid rgba(74,85,96,.16); border-radius: 999px; background: rgba(255,255,255,.34); color: var(--codex-plus-glass-text); font: 12px system-ui, sans-serif; padding: 5px 9px; white-space: nowrap; box-shadow: inset 0 1px 0 rgba(255,255,255,.48); }
+      .codex-plus-service-tier-button[data-active="true"] { border-color: rgba(23,184,144,.38); background: rgba(57,182,195,.22); color: #075f56; }
       .codex-plus-service-tier-button:disabled { opacity: .55; cursor: not-allowed; }
       .${codexServiceTierBadgeClass} {
         display: inline-flex;
@@ -807,13 +854,51 @@
       .${codexServiceTierBadgeClass}[data-tier="failed"] { border-color: rgba(248,113,113,.42); background: rgba(248,113,113,.12); color: #fca5a5; }
       .${codexServiceTierBadgeClass}[data-tier="unsupported"] { border-color: rgba(251,191,36,.48); background: rgba(251,191,36,.13); color: #fbbf24; }
       .${codexServiceTierBadgeClass}[data-disabled="true"] { cursor: not-allowed; opacity: .78; }
-      .codex-plus-about { color: #a1a1aa; line-height: 1.5; }
-      .codex-plus-tabs { display: flex; gap: 8px; padding: 0 20px 6px; flex: 0 0 auto; }
-      .codex-plus-tab-button { border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: transparent; color: #d1d5db; font: 12px system-ui, sans-serif; padding: 5px 10px; }
-      .codex-plus-tab-button[data-active="true"] { background: #10a37f; color: white; border-color: #10a37f; }
+      .codex-plus-about { color: var(--codex-plus-glass-muted); line-height: 1.5; }
+      .codex-plus-tabs { display: flex; gap: 8px; padding: 0 20px 8px; flex: 0 0 auto; position: relative; z-index: 1; }
+      .codex-plus-tab-button { border: 1px solid rgba(74,85,96,.18); border-radius: 999px; background: rgba(255,255,255,.3); color: var(--codex-plus-glass-muted); font: 12px system-ui, sans-serif; padding: 6px 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.48); }
+      .codex-plus-tab-button[data-active="true"] { background: linear-gradient(90deg, var(--codex-plus-glass-teal), #3bd0b0); color: #f8fffd; border-color: rgba(255,255,255,.56); font-weight: 720; box-shadow: inset 0 1px 0 rgba(255,255,255,.46), 0 8px 20px rgba(57,182,195,.22); }
+      .codex-plus-panel { display: grid; gap: 10px; }
       .codex-plus-panel[hidden] { display: none; }
+      .codex-plus-panel[data-codex-plus-panel="usage"] { display: grid; gap: 14px; }
+      .codex-plus-panel[data-codex-plus-panel="usage"][hidden] { display: none; }
+      .codex-plus-usage-card {
+        display: grid;
+        gap: 14px;
+        border: 1px solid var(--codex-plus-glass-border);
+        border-radius: 22px;
+        padding: 18px;
+        background: linear-gradient(150deg, rgba(255,255,255,.54), rgba(255,255,255,.3));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.72), 0 18px 50px rgba(30,35,40,.09);
+      }
+      .codex-plus-usage-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+      }
+      .codex-plus-usage-title { font-size: 20px; font-weight: 750; line-height: 1.12; letter-spacing: -.02em; }
+      .codex-plus-usage-subtitle { margin-top: 4px; color: var(--codex-plus-glass-muted); font-size: 12px; }
+      .codex-plus-usage-plan { color: var(--codex-plus-glass-muted); font-weight: 650; white-space: nowrap; }
+      .codex-plus-usage-refresh { border: 1px solid rgba(74,85,96,.18); border-radius: 999px; background: rgba(255,255,255,.34); color: var(--codex-plus-glass-text); font: 12px system-ui, sans-serif; padding: 6px 10px; }
+      .codex-plus-usage-section { display: grid; gap: 12px; }
+      .codex-plus-usage-meter { display: grid; gap: 6px; }
+      .codex-plus-usage-meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+      .codex-plus-usage-meter-title { font-size: 17px; font-weight: 720; letter-spacing: -.01em; }
+      .codex-plus-usage-reset { color: var(--codex-plus-glass-faint); font-size: 12px; text-align: right; }
+      .codex-plus-usage-bar { position: relative; height: 8px; overflow: hidden; border-radius: 999px; background: rgba(94,98,110,.16); }
+      .codex-plus-usage-bar-fill { position: absolute; inset: 0 auto 0 0; width: var(--codex-plus-usage-width, 0%); border-radius: inherit; background: linear-gradient(90deg, var(--codex-plus-glass-teal), #3bd0b0); box-shadow: 0 0 16px rgba(57,182,195,.34); }
+      .codex-plus-usage-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--codex-plus-glass-text); font-size: 13px; }
+      .codex-plus-usage-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .codex-plus-usage-metric { border-radius: 16px; border: 1px solid rgba(255,255,255,.5); background: rgba(255,255,255,.28); padding: 11px 12px; }
+      .codex-plus-usage-metric-label { color: var(--codex-plus-glass-faint); font-size: 12px; font-weight: 650; }
+      .codex-plus-usage-metric-value { margin-top: 4px; color: var(--codex-plus-glass-text); font-size: 16px; font-weight: 760; letter-spacing: -.01em; }
+      .codex-plus-usage-chart { height: 116px; display: flex; align-items: flex-end; gap: 5px; padding: 8px 0 2px; border-bottom: 1px solid var(--codex-plus-glass-hairline); }
+      .codex-plus-usage-chart-bar { flex: 1 1 0; min-width: 4px; height: var(--codex-plus-usage-bar-height, 2%); border-radius: 5px 5px 1px 1px; background: linear-gradient(180deg, var(--codex-plus-glass-amber), rgba(217,154,58,.58)); }
+      .codex-plus-usage-note { color: var(--codex-plus-glass-faint); font-size: 12px; line-height: 1.45; }
+      .codex-plus-usage-empty { border: 1px solid rgba(255,255,255,.48); border-radius: 18px; background: rgba(255,255,255,.28); color: var(--codex-plus-glass-muted); padding: 18px; line-height: 1.5; }
       .codex-plus-action-button,
-      .codex-plus-issue-button { border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: #3f3f46; color: #f3f4f6; font: 12px system-ui, sans-serif; padding: 6px 8px; }
+      .codex-plus-issue-button { border: 1px solid rgba(74,85,96,.18); border-radius: 999px; background: rgba(255,255,255,.34); color: var(--codex-plus-glass-text); font: 12px system-ui, sans-serif; padding: 7px 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.48); }
       .codex-plus-worktree-actions {
         display: inline-flex;
         align-items: center;
@@ -823,61 +908,57 @@
         display: grid;
         gap: 4px;
         margin-top: 10px;
-        color: #d4d4d8;
+        color: var(--codex-plus-glass-muted);
         font: 12px system-ui, sans-serif;
         text-align: left;
       }
       .codex-plus-form-field input {
         width: min(520px, 72vw);
-        border: 1px solid rgba(255,255,255,.18);
-        border-radius: 8px;
-        background: #18181b;
-        color: #f4f4f5;
+        border: 1px solid rgba(74,85,96,.18);
+        border-radius: 12px;
+        background: rgba(255,255,255,.34);
+        color: var(--codex-plus-glass-text);
         padding: 8px 10px;
         font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       }
       .codex-plus-form-message {
         min-height: 18px;
         margin-top: 10px;
-        color: #a1a1aa;
+        color: var(--codex-plus-glass-faint);
         font: 12px system-ui, sans-serif;
         text-align: left;
       }
-      .codex-plus-form-message[data-status="ok"] { color: #34d399; }
-      .codex-plus-form-message[data-status="failed"] { color: #f87171; }
-      .codex-plus-form-message[data-status="loading"] { color: #fbbf24; }
+      .codex-plus-form-message[data-status="ok"] { color: #0f8e70; }
+      .codex-plus-form-message[data-status="failed"] { color: #c2413f; }
+      .codex-plus-form-message[data-status="loading"] { color: #a56a10; }
       .codex-plus-backend-status { display: grid; gap: 4px; min-width: 132px; justify-items: end; }
-      .codex-plus-backend-label { color: #a1a1aa; font-size: 12px; }
-      .codex-plus-backend-label[data-status="ok"] { color: #34d399; }
-      .codex-plus-backend-label[data-status="failed"] { color: #f87171; }
-      .codex-plus-backend-repair { border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: #3f3f46; color: #f3f4f6; font: 12px system-ui, sans-serif; padding: 6px 8px; }
+      .codex-plus-backend-label { color: var(--codex-plus-glass-faint); font-size: 12px; }
+      .codex-plus-backend-label[data-status="ok"] { color: #0f8e70; }
+      .codex-plus-backend-label[data-status="failed"] { color: #c2413f; }
+      .codex-plus-backend-repair { border: 1px solid rgba(74,85,96,.18); border-radius: 999px; background: rgba(255,255,255,.34); color: var(--codex-plus-glass-text); font: 12px system-ui, sans-serif; padding: 7px 10px; }
       .codex-plus-backend-repair[hidden] { display: none; }
-      .codex-plus-user-script-warning { margin-top: 4px; color: #fbbf24; font-size: 12px; }
-      .codex-plus-user-script-dirs { margin-top: 6px; color: #a1a1aa; font-size: 11px; line-height: 1.4; word-break: break-all; }
+      .codex-plus-user-script-warning { margin-top: 4px; color: #a56a10; font-size: 12px; }
+      .codex-plus-user-script-dirs { margin-top: 6px; color: var(--codex-plus-glass-faint); font-size: 11px; line-height: 1.4; word-break: break-all; }
       .codex-plus-user-script-list { margin-top: 8px; display: grid; gap: 6px; }
-      .codex-plus-user-script-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; padding: 6px 8px; }
+      .codex-plus-user-script-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid rgba(255,255,255,.48); border-radius: 14px; padding: 8px 10px; background: rgba(255,255,255,.28); box-shadow: inset 0 1px 0 rgba(255,255,255,.48); }
       .codex-plus-user-script-name { font-size: 12px; }
-      .codex-plus-user-script-meta { margin-top: 2px; color: #a1a1aa; font-size: 11px; }
-      .codex-plus-user-script-error { margin-top: 2px; color: #f87171; font-size: 11px; word-break: break-all; }
+      .codex-plus-user-script-meta { margin-top: 2px; color: var(--codex-plus-glass-faint); font-size: 11px; }
+      .codex-plus-user-script-error { margin-top: 2px; color: #c2413f; font-size: 11px; word-break: break-all; }
       .codex-plus-user-script-actions { display: grid; justify-items: end; gap: 8px; min-width: 120px; }
-      .codex-plus-user-script-reload { border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: #3f3f46; color: #f3f4f6; font: 12px system-ui, sans-serif; padding: 6px 8px; }
-      .codex-plus-sponsor-text { color: #d1d5db; font-size: 13px; line-height: 1.55; margin: 4px 0 12px; }
+      .codex-plus-user-script-reload { border: 1px solid rgba(74,85,96,.18); border-radius: 999px; background: rgba(255,255,255,.34); color: var(--codex-plus-glass-text); font: 12px system-ui, sans-serif; padding: 7px 10px; }
+      .codex-plus-sponsor-text { border: 1px solid rgba(255,255,255,.5); border-radius: 18px; background: rgba(255,255,255,.3); color: var(--codex-plus-glass-muted); font-size: 13px; line-height: 1.55; margin: 0 0 12px; padding: 12px 14px; box-shadow: inset 0 1px 0 rgba(255,255,255,.56); }
       .codex-plus-ad-section { display: grid; gap: 10px; margin-top: 12px; }
       .codex-plus-ad-section:first-of-type { margin-top: 0; }
-      .codex-plus-ad-section-title { color: #f8fafc; font-size: 15px; margin: 0; }
+      .codex-plus-ad-section-title { color: var(--codex-plus-glass-text); font-size: 15px; margin: 0; }
       .codex-plus-ad-list { display: grid; gap: 14px; }
-      .codex-plus-ad-card { border: 1px solid rgba(96,165,250,.26); border-radius: 16px; background: linear-gradient(135deg, rgba(37,99,235,.18), rgba(255,255,255,.05)); box-shadow: 0 14px 36px rgba(0,0,0,.22); }
+      .codex-plus-ad-card { border: 1px solid rgba(255,255,255,.5); border-radius: 18px; background: linear-gradient(145deg, rgba(255,255,255,.5), rgba(255,255,255,.28)); box-shadow: inset 0 1px 0 rgba(255,255,255,.58), 0 14px 36px rgba(30,35,40,.08); }
       .codex-plus-ad-content { padding: 14px; }
-      .codex-plus-ad-title { margin: 0; color: #f8fafc; font-size: 17px; line-height: 1.35; }
-      .codex-plus-ad-description { margin: 6px 0 10px; color: #dbeafe; font-size: 13px; line-height: 1.55; }
+      .codex-plus-ad-title { margin: 0; color: var(--codex-plus-glass-text); font-size: 17px; line-height: 1.35; }
+      .codex-plus-ad-description { margin: 6px 0 10px; color: var(--codex-plus-glass-muted); font-size: 13px; line-height: 1.55; }
       .codex-plus-ad-highlights { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-      .codex-plus-ad-highlights span { border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: rgba(255,255,255,.08); color: #f3f4f6; font-size: 12px; padding: 4px 8px; }
-      .codex-plus-ad-link { display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; background: #2563eb; color: #ffffff; font-size: 13px; font-weight: 650; text-decoration: none; padding: 8px 12px; }
-      .codex-plus-ad-empty { border: 1px dashed rgba(255,255,255,.16); border-radius: 12px; color: #9ca3af; font-size: 13px; padding: 12px; text-align: center; }
-      .codex-plus-sponsor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-      .codex-plus-sponsor-card { border: 1px solid rgba(255,255,255,.1); border-radius: 12px; padding: 10px; background: rgba(255,255,255,.04); text-align: center; }
-      .codex-plus-sponsor-card-title { color: #f3f4f6; font-size: 13px; margin-bottom: 8px; }
-      .codex-plus-sponsor-qr { display: block; width: 100%; max-width: 340px; border-radius: 8px; margin: 0 auto; background: white; }
+      .codex-plus-ad-highlights span { border: 1px solid rgba(74,85,96,.14); border-radius: 999px; background: rgba(255,255,255,.32); color: var(--codex-plus-glass-text); font-size: 12px; padding: 4px 8px; }
+      .codex-plus-ad-link { display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(217,154,58,.36); border-radius: 999px; background: rgba(217,154,58,.16); color: #7a4e0a; font-size: 13px; font-weight: 650; text-decoration: none; padding: 8px 12px; }
+      .codex-plus-ad-empty { border: 1px dashed rgba(74,85,96,.18); border-radius: 16px; background: rgba(255,255,255,.24); color: var(--codex-plus-glass-faint); font-size: 13px; padding: 14px; text-align: center; }
       .${timelineClass} {
         position: fixed;
         top: calc(72px + 12px);
@@ -1105,6 +1186,7 @@
   }
 
   let codexPlusBackendSettings = { providerSyncEnabled: false, enhancementsEnabled: true, launchMode: "patch", codexAppVersion: "" };
+  const codexAgentContextPreflightCache = new Map();
   const codexPluginLegacyEntryUnlockBeforeVersion = "26.601.2237";
 
   function parseCodexVersionParts(version) {
@@ -1201,6 +1283,34 @@
       throw new Error("Codex setting-storage 接口不可用");
     }
     return module;
+  }
+
+  async function loadCodexAppMessageDispatcher() {
+    const errors = [];
+    try {
+      const module = await loadCodexAppModule("vscode-api-");
+      if (module?.f && typeof module.f.dispatchMessage === "function") {
+        return { dispatcher: module.f, source: "vscode-api.f" };
+      }
+      const dispatcherClass = typeof module?.d === "function" && String(module.d).includes("dispatchMessage") ? module.d : null;
+      const dispatcher = dispatcherClass?.getInstance?.();
+      if (dispatcher && typeof dispatcher.dispatchMessage === "function") {
+        return { dispatcher, source: "vscode-api.d" };
+      }
+    } catch (error) {
+      errors.push(`vscode-api: ${error?.message || String(error)}`);
+    }
+    try {
+      const module = await loadCodexAppModule("setting-storage-");
+      const dispatcherClass = typeof module.v === "function" && String(module.v).includes("dispatchMessage") ? module.v : null;
+      const dispatcher = dispatcherClass?.getInstance?.();
+      if (dispatcher && typeof dispatcher.dispatchMessage === "function") {
+        return { dispatcher, source: "setting-storage.v" };
+      }
+    } catch (error) {
+      errors.push(`setting-storage: ${error?.message || String(error)}`);
+    }
+    throw new Error(`Codex dispatcher unavailable${errors.length ? ` (${errors.join("; ")})` : ""}`);
   }
 
   async function getCodexServiceTierSetting() {
@@ -1705,6 +1815,10 @@
     return new Set(["thread/start", "thread/resume", "turn/start"]);
   }
 
+  function codexAgentContextRequestMethods() {
+    return new Set(["thread/start", "turn/start"]);
+  }
+
   function codexServiceTierThreadIdForRequest(method, params, threadIdHint = "") {
     if (method === "thread/start") return validThreadScrollSessionKey(params?.threadId || threadIdHint);
     return validThreadScrollSessionKey(params?.threadId || params?.conversationId || threadIdHint || currentSessionRef().session_id);
@@ -1824,29 +1938,211 @@
     return message;
   }
 
+  function codexAgentContextParamsForMessage(message) {
+    if (!message || typeof message !== "object") return null;
+    if (message.type === "send-cli-request-for-host") {
+      const method = String(message.method || "");
+      return codexAgentContextRequestMethods().has(method) ? { method, params: message.params, container: message, key: "params" } : null;
+    }
+    if (message.type === "mcp-request" && message.request && typeof message.request === "object") {
+      const method = String(message.request.method || "");
+      return codexAgentContextRequestMethods().has(method) ? { method, params: message.request.params, container: message.request, key: "params" } : null;
+    }
+    if (message.type === "worker-request" && message.request && typeof message.request === "object") {
+      const method = String(message.request.method || "");
+      return codexAgentContextRequestMethods().has(method) ? { method, params: message.request.params, container: message.request, key: "params" } : null;
+    }
+    if (message.type === "thread-prewarm-start" && message.request && typeof message.request === "object") {
+      return { method: "thread/start", params: message.request.params, container: message.request, key: "params" };
+    }
+    if (message.type === "start-conversation") {
+      return { method: "thread/start", params: message, container: null, key: "" };
+    }
+    if (message.type === "prewarm-thread-start-for-host" && message.params && typeof message.params === "object") {
+      return { method: "thread/start", params: message.params, container: message, key: "params" };
+    }
+    if (message.type === "start-thread-for-host") {
+      return { method: "thread/start", params: message, container: null, key: "" };
+    }
+    if (message.type === "start-turn-for-host" && message.params && typeof message.params === "object") {
+      return { method: "turn/start", params: message.params, container: message, key: "params" };
+    }
+    return null;
+  }
+
+  function codexAgentContextTextKeys() {
+    return new Set(["prompt", "message", "text", "input", "content", "query", "goal", "userMessage", "user_message"]);
+  }
+
+  function codexAgentContextExtractGoal(value, visited = new WeakSet(), depth = 0) {
+    if (typeof value === "string") {
+      const text = value.trim();
+      return text.length >= 3 && text.length <= 4000 ? text : "";
+    }
+    if (!value || typeof value !== "object" || visited.has(value) || depth > 5) return "";
+    visited.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const goal = codexAgentContextExtractGoal(item, visited, depth + 1);
+        if (goal) return goal;
+      }
+      return "";
+    }
+    const textKeys = codexAgentContextTextKeys();
+    for (const key of Object.keys(value)) {
+      if (!textKeys.has(key)) continue;
+      const goal = codexAgentContextExtractGoal(value[key], visited, depth + 1);
+      if (goal) return goal;
+    }
+    for (const key of Object.keys(value)) {
+      const goal = codexAgentContextExtractGoal(value[key], visited, depth + 1);
+      if (goal) return goal;
+    }
+    return "";
+  }
+
+  function codexAgentContextPreflightHint(preflight) {
+    if (!preflight || preflight.status !== "ok" || !preflight.codexPreflightMd) return "";
+    return [
+      "",
+      "",
+      codexAgentContextHintMarker,
+      "Before answering, read the local preflight/context files generated for this task.",
+      `Preflight: ${preflight.codexPreflightMd}`,
+      preflight.contextMd ? `Context: ${preflight.contextMd}` : "",
+      preflight.sourcesJsonl ? `Sources: ${preflight.sourcesJsonl}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  function codexAgentContextAppendHint(value, hint, visited = new WeakSet(), depth = 0) {
+    if (!hint || !value || typeof value !== "object" || visited.has(value) || depth > 6) return value;
+    visited.add(value);
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        const next = codexAgentContextAppendHint(value[index], hint, visited, depth + 1);
+        if (next !== value[index]) {
+          const copy = value.slice();
+          copy[index] = next;
+          return copy;
+        }
+      }
+      return value;
+    }
+    const textKeys = codexAgentContextTextKeys();
+    for (const key of Object.keys(value)) {
+      if (!textKeys.has(key) || typeof value[key] !== "string") continue;
+      const text = value[key];
+      if (text.includes(codexAgentContextHintMarker)) return value;
+      if (text.trim().length < 3 || text.length > 4000) continue;
+      return { ...value, [key]: `${text}${hint}` };
+    }
+    for (const key of Object.keys(value)) {
+      const next = codexAgentContextAppendHint(value[key], hint, visited, depth + 1);
+      if (next !== value[key]) return { ...value, [key]: next };
+    }
+    return value;
+  }
+
+  async function codexAgentContextTaskPreflight(goal, method, threadId) {
+    const trimmedGoal = String(goal || "").trim();
+    if (!trimmedGoal) return null;
+    const cacheKey = `${method}:${threadId || ""}:${trimmedGoal}`;
+    const cached = codexAgentContextPreflightCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < 2 * 60 * 1000) return cached.promise;
+    const promise = postJson("/agent-context/task-preflight", { goal: trimmedGoal, method, threadId: threadId || "" })
+      .then((result) => {
+        sendCodexPlusDiagnostic("agent_context_task_preflight", {
+          status: result?.status || "unknown",
+          method,
+          threadId: threadId || "",
+          sourcesIncluded: result?.sourcesIncluded || 0,
+          hasPreflight: !!result?.codexPreflightMd,
+        });
+        return result;
+      })
+      .catch((error) => {
+        sendCodexPlusDiagnostic("agent_context_task_preflight_failed", {
+          method,
+          threadId: threadId || "",
+          errorName: error?.name || "",
+          errorMessage: error?.message || String(error),
+        });
+        return null;
+      });
+    codexAgentContextPreflightCache.set(cacheKey, { at: Date.now(), promise });
+    return promise;
+  }
+
+  function codexAgentContextRequestOverride(message) {
+    const target = codexAgentContextParamsForMessage(message);
+    if (!target || !target.params || typeof target.params !== "object") return message;
+    const threadId = codexServiceTierThreadIdForRequest(target.method, target.params, message.conversationId);
+    const goal = codexAgentContextExtractGoal(target.params);
+    if (!goal) return message;
+    return codexAgentContextTaskPreflight(goal, target.method, threadId).then((preflight) => {
+      const hint = codexAgentContextPreflightHint(preflight);
+      if (!hint) return message;
+      const nextParams = codexAgentContextAppendHint(target.params, hint);
+      if (nextParams === target.params) return message;
+      if (!target.container) return nextParams;
+      if (message.type === "mcp-request" || message.type === "worker-request") {
+        return { ...message, request: { ...message.request, [target.key]: nextParams } };
+      }
+      if (message.type === "thread-prewarm-start") {
+        return { ...message, request: { ...message.request, [target.key]: nextParams } };
+      }
+      return { ...message, [target.key]: nextParams };
+    });
+  }
+
   function installCodexServiceTierDispatcherPatch() {
     if (window.__codexServiceTierRequestOverrideInstalled === codexServiceTierRequestOverrideVersion) return;
-    const patch = async () => {
+    if (window.__codexServiceTierRequestOverrideInstalling === codexServiceTierRequestOverrideVersion) return;
+    window.__codexServiceTierRequestOverrideInstalling = codexServiceTierRequestOverrideVersion;
+    const patch = async (attempt = 0) => {
       try {
-        const module = await loadCodexAppModule("setting-storage-");
-        const dispatcherClass = typeof module.v === "function" && String(module.v).includes("dispatchMessage") ? module.v : null;
-        const dispatcher = dispatcherClass?.getInstance?.();
-        if (!dispatcher || typeof dispatcher.dispatchMessage !== "function") throw new Error("Codex dispatcher unavailable");
+        const { dispatcher, source } = await loadCodexAppMessageDispatcher();
         if (dispatcher.__codexServiceTierOriginalDispatchMessage) {
           window.__codexServiceTierRequestOverrideInstalled = codexServiceTierRequestOverrideVersion;
           return;
         }
         dispatcher.__codexServiceTierOriginalDispatchMessage = dispatcher.dispatchMessage.bind(dispatcher);
-        dispatcher.dispatchMessage = (type, payload) => {
-          const message = codexServiceTierRequestOverride({ ...(payload || {}), type });
-          const nextType = message?.type || type;
+        const dispatchWithMessage = (originalType, message) => {
+          const nextType = message?.type || originalType;
           const { type: _type, ...nextPayload } = message || {};
           return dispatcher.__codexServiceTierOriginalDispatchMessage(nextType, nextPayload);
         };
+        dispatcher.dispatchMessage = (type, payload) => {
+          const serviceTierMessage = codexServiceTierRequestOverride({ ...(payload || {}), type });
+          const maybeMessage = codexAgentContextRequestOverride(serviceTierMessage);
+          if (!maybeMessage || typeof maybeMessage.then !== "function") return dispatchWithMessage(type, maybeMessage);
+          return maybeMessage
+            .then((message) => dispatchWithMessage(type, message))
+            .catch((error) => {
+              sendCodexPlusDiagnostic("agent_context_request_override_dispatch_failed", {
+                errorName: error?.name || "",
+                errorMessage: error?.message || String(error),
+              });
+              return dispatchWithMessage(type, serviceTierMessage);
+            });
+        };
         window.__codexServiceTierRequestOverrideInstalled = codexServiceTierRequestOverrideVersion;
-        sendCodexPlusDiagnostic("service_tier_dispatcher_patch_installed", {});
+        sendCodexPlusDiagnostic("service_tier_dispatcher_patch_installed", { source });
       } catch (error) {
+        if (attempt < 60) {
+          if (attempt === 0 || attempt === 10 || attempt === 30) {
+            sendCodexPlusDiagnostic("service_tier_dispatcher_patch_retry", {
+              attempt,
+              errorName: error?.name || "",
+              errorMessage: error?.message || String(error),
+            });
+          }
+          setTimeout(() => void patch(attempt + 1), 500);
+          return;
+        }
+        window.__codexServiceTierRequestOverrideInstalling = "";
         sendCodexPlusDiagnostic("service_tier_dispatcher_patch_failed", {
+          attempts: attempt + 1,
           errorName: error?.name || "",
           errorMessage: error?.message || String(error),
         });
@@ -2029,6 +2325,161 @@
     }
   }
 
+  let codexPlusUsageSummary = { status: "idle", providers: [] };
+  let codexPlusUsageLoading = false;
+
+  function usagePercent(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Math.min(100, Math.max(0, number));
+  }
+
+  function usageResetLabel(resetsAt) {
+    const target = Date.parse(resetsAt || "");
+    if (!Number.isFinite(target)) return "";
+    const diffMs = target - Date.now();
+    if (diffMs <= 0) return "Resetting soon";
+    const minutes = Math.max(1, Math.round(diffMs / 60000));
+    const days = Math.floor(minutes / 1440);
+    const hours = Math.floor((minutes % 1440) / 60);
+    const mins = minutes % 60;
+    if (days > 0) return `Resets in ${days}d ${hours}h`;
+    if (hours > 0) return `Resets in ${hours}h ${mins}m`;
+    return `Resets in ${mins}m`;
+  }
+
+  function usageLineLabel(metric) {
+    const raw = String(metric?.label || "");
+    if (raw === "Spark") return "Codex Spark 5-hour";
+    if (raw === "Spark Weekly") return "Codex Spark Weekly";
+    return raw || "Usage";
+  }
+
+  function renderCodexUsageProgress(metric) {
+    const left = usagePercent(metric?.leftPercent);
+    const used = usagePercent(metric?.usedPercent);
+    const width = metric?.label === "Credits" ? Math.max(0, 100 - used) : left;
+    const reset = usageResetLabel(metric?.resetsAt);
+    return `
+      <div class="codex-plus-usage-meter">
+        <div class="codex-plus-usage-meter-head">
+          <div class="codex-plus-usage-meter-title">${escapeHtml(usageLineLabel(metric))}</div>
+          <div class="codex-plus-usage-reset">${escapeHtml(reset)}</div>
+        </div>
+        <div class="codex-plus-usage-bar" aria-label="${escapeHtml(usageLineLabel(metric))}">
+          <div class="codex-plus-usage-bar-fill" style="--codex-plus-usage-width: ${width.toFixed(1)}%"></div>
+        </div>
+        <div class="codex-plus-usage-meta">
+          <span>${Math.round(left)}% left</span>
+          <span>${Math.round(used)}% used</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCodexUsageText(items) {
+    if (!items.length) return "";
+    return `
+      <div class="codex-plus-usage-metrics">
+        ${items.slice(0, 4).map((item) => `
+          <div class="codex-plus-usage-metric">
+            <div class="codex-plus-usage-metric-label">${escapeHtml(item.label || "")}</div>
+            <div class="codex-plus-usage-metric-value">${escapeHtml(item.value || "")}</div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function renderCodexUsageChart(chart) {
+    const points = Array.isArray(chart?.points) ? chart.points : [];
+    if (!points.length) return "";
+    const max = points.reduce((current, point) => {
+      const value = Number(point?.value);
+      return Number.isFinite(value) ? Math.max(current, value) : current;
+    }, 0);
+    if (max <= 0) return "";
+    return `
+      <div>
+        <div class="codex-plus-usage-chart" aria-label="${escapeHtml(chart.label || "Usage Trend")}">
+          ${points.slice(-30).map((point) => {
+            const value = Number(point?.value);
+            const height = Number.isFinite(value) ? Math.max(2, (value / max) * 100) : 2;
+            const title = `${point?.label || ""} ${point?.valueLabel || ""}`.trim();
+            return `<div class="codex-plus-usage-chart-bar" title="${escapeHtml(title)}" style="--codex-plus-usage-bar-height: ${height.toFixed(1)}%"></div>`;
+          }).join("")}
+        </div>
+        <div class="codex-plus-usage-note">${escapeHtml(chart.label || "Usage Trend")} · Estimated from local usage data.</div>
+      </div>
+    `;
+  }
+
+  function renderCodexUsagePanel() {
+    if (codexPlusUsageLoading) {
+      return `<div class="codex-plus-usage-empty">正在读取 OpenUsage 数据…</div>`;
+    }
+    if (codexPlusUsageSummary?.status === "failed") {
+      return `
+        <div class="codex-plus-usage-empty">
+          <div>OpenUsage 暂不可用：${escapeHtml(codexPlusUsageSummary.message || "unknown error")}</div>
+          <div class="codex-plus-usage-note">请确认 OpenUsage/CodexBar 数据服务正在监听 127.0.0.1:6736。</div>
+        </div>
+      `;
+    }
+    const provider = codexPlusUsageSummary?.primaryProvider
+      || codexPlusUsageSummary?.providers?.find?.((item) => item.providerId === "codex")
+      || codexPlusUsageSummary?.providers?.[0];
+    if (!provider) {
+      return `<div class="codex-plus-usage-empty">还没有读取用量数据。点击刷新从 OpenUsage 获取 Codex 用量。</div>`;
+    }
+    const progress = Array.isArray(provider.progress) ? provider.progress : [];
+    const text = Array.isArray(provider.text) ? provider.text : [];
+    const charts = Array.isArray(provider.charts) ? provider.charts : [];
+    const fetchedAt = Number(codexPlusUsageSummary.fetchedAtMs);
+    const fetchedLabel = Number.isFinite(fetchedAt) ? new Date(fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+    return `
+      <div class="codex-plus-usage-card">
+        <div class="codex-plus-usage-header">
+          <div>
+            <div class="codex-plus-usage-title">${escapeHtml(provider.displayName || "Codex")}</div>
+            <div class="codex-plus-usage-subtitle">${fetchedLabel ? `Updated ${escapeHtml(fetchedLabel)} · ` : ""}${escapeHtml(codexPlusUsageSummary.source || "openusage")}</div>
+          </div>
+          <div class="codex-plus-usage-plan">${escapeHtml(provider.plan || "")}</div>
+        </div>
+        <div class="codex-plus-usage-section">${progress.map(renderCodexUsageProgress).join("") || `<div class="codex-plus-usage-note">No quota windows returned.</div>`}</div>
+        ${renderCodexUsageText(text)}
+        ${renderCodexUsageChart(charts[0])}
+        <div class="codex-plus-usage-note">Data comes from the local OpenUsage endpoint and is rendered inside Codex--, not embedded from CodexBar.app.</div>
+      </div>
+    `;
+  }
+
+  function updateCodexUsagePanel() {
+    const panel = document.querySelector("[data-codex-plus-usage-content]");
+    if (panel) panel.innerHTML = renderCodexUsagePanel();
+  }
+
+  async function loadCodexUsageSummary(force = false) {
+    if (codexPlusUsageLoading) return;
+    if (!force && codexPlusUsageSummary?.status === "ok") {
+      updateCodexUsagePanel();
+      return;
+    }
+    codexPlusUsageLoading = true;
+    updateCodexUsagePanel();
+    try {
+      const result = await postJson("/usage/summary", {});
+      codexPlusUsageSummary = result && typeof result === "object"
+        ? result
+        : { status: "failed", message: "invalid usage response", providers: [] };
+    } catch (error) {
+      codexPlusUsageSummary = { status: "failed", message: error?.message || String(error), providers: [] };
+    } finally {
+      codexPlusUsageLoading = false;
+      updateCodexUsagePanel();
+    }
+  }
+
   const codexPlusAdsUrl = "/ads";
   let codexPlusAds = [];
   let codexPlusAdsLoaded = false;
@@ -2139,6 +2590,7 @@
       panel.hidden = panel.getAttribute("data-codex-plus-panel") !== tab;
     });
     if (tab === "userScripts") loadUserScripts();
+    if (tab === "usage") loadCodexUsageSummary();
   }
 
   function openCodexPlusModal() {
@@ -2154,9 +2606,9 @@
         </div>
         <div class="codex-plus-tabs" role="tablist" aria-label="Codex++">
           <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="home" data-active="true">主页</button>
+          <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="usage" data-active="false">Usage</button>
           <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="userScripts" data-active="false">用户脚本</button>
           <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="sponsor" data-active="false">推荐内容</button>
-          <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="support" data-active="false">请作者喝咖啡</button>
         </div>
         <div class="codex-plus-modal-body">
           <div class="codex-plus-panel" data-codex-plus-panel="home">
@@ -2298,23 +2750,20 @@
               </div>
             </div>
           </div>
+          <div class="codex-plus-panel" data-codex-plus-panel="usage" hidden>
+            <div class="codex-plus-usage-header">
+              <div>
+                <div class="codex-plus-row-title">Codex Usage</div>
+                <div class="codex-plus-row-description">CodexBar-style local usage card powered by OpenUsage.</div>
+              </div>
+              <button type="button" class="codex-plus-usage-refresh" data-codex-usage-refresh="true">Refresh</button>
+            </div>
+            <div data-codex-plus-usage-content="true">${renderCodexUsagePanel()}</div>
+          </div>
           <div class="codex-plus-panel" data-codex-plus-panel="sponsor" hidden>
             <div class="codex-plus-sponsor-text">推荐内容分为赞助商推荐和普通推荐。赞助商推荐来自支持 Codex++ 继续维护的合作方；普通推荐用于展示适合 Codex 用户的服务与信息。</div>
             <div class="codex-plus-ad-remote">
               ${renderCodexPlusAds()}
-            </div>
-          </div>
-          <div class="codex-plus-panel" data-codex-plus-panel="support" hidden>
-            <div class="codex-plus-sponsor-text">如果 Codex++ 帮到了你，可以请我喝杯咖啡，或者随手赞赏支持一下继续维护。</div>
-            <div class="codex-plus-sponsor-grid">
-              <div class="codex-plus-sponsor-card">
-                <div class="codex-plus-sponsor-card-title">支付宝</div>
-                <img class="codex-plus-sponsor-qr" src="${window.__CODEX_PLUS_SPONSOR_IMAGES__?.alipay || `${helperBase}/assets/sponsor-alipay.jpg`}" alt="支付宝赞赏码">
-              </div>
-              <div class="codex-plus-sponsor-card">
-                <div class="codex-plus-sponsor-card-title">微信</div>
-                <img class="codex-plus-sponsor-qr" src="${window.__CODEX_PLUS_SPONSOR_IMAGES__?.wechat || `${helperBase}/assets/sponsor-wechat.jpg`}" alt="微信赞赏码">
-              </div>
             </div>
           </div>
         </div>
@@ -2369,6 +2818,10 @@
       }
       if (target?.closest("[data-codex-backend-repair]")) {
         repairBackend();
+        return;
+      }
+      if (target?.closest("[data-codex-usage-refresh]")) {
+        loadCodexUsageSummary(true);
         return;
       }
       const issueButton = target?.closest("[data-codex-plus-issue]");
@@ -3914,8 +4367,9 @@
   }
 
   async function postJson(path, payload) {
+    const canUseHttpHelper = path === "/backend/status" || path === "/backend/repair" || path === "/agent-context/task-preflight" || path === "/usage/summary";
     if (!window.__codexSessionDeleteBridge) {
-      if (path === "/backend/status" || path === "/backend/repair") {
+      if (canUseHttpHelper) {
         try {
           const response = await fetch(`${helperBase}${path}`, {
             method: "POST",
@@ -3931,9 +4385,15 @@
       return { status: "failed", message: "桥接不可用，请重启启动器" };
     }
     function bridgeWithBackendTimeout(path, payload) {
+      const timeoutMs = path === "/agent-context/task-preflight" ? 30000 : path === "/usage/summary" ? 4000 : 2000;
+      let timeoutId = null;
       return Promise.race([
-        window.__codexSessionDeleteBridge(path, payload),
-        new Promise((resolve) => setTimeout(() => resolve({ status: "failed", message: "后端检查超时", timeout: true }), 2000)),
+        Promise.resolve(window.__codexSessionDeleteBridge(path, payload)).finally(() => {
+          if (timeoutId !== null) clearTimeout(timeoutId);
+        }),
+        new Promise((resolve) => {
+          timeoutId = setTimeout(() => resolve({ status: "failed", message: "后端检查超时", timeout: true }), timeoutMs);
+        }),
       ]);
     }
     async function fetchBackendStatusFromHelper(path, payload) {
@@ -3949,8 +4409,9 @@
       }
     }
     try {
-      if (path === "/backend/status" || path === "/backend/repair") {
+      if (canUseHttpHelper) {
         const result = await bridgeWithBackendTimeout(path, payload);
+        if (path === "/agent-context/task-preflight" && result && typeof result.status === "string") return result;
         if (result?.status === "ok") return result;
         if (result?.timeout) sendCodexPlusDiagnostic("backend_bridge_timeout", { path });
         const fallback = await fetchBackendStatusFromHelper(path, payload);
@@ -3976,8 +4437,9 @@
         errorName: error?.name || "",
         errorMessage: error?.message || String(error),
       });
-      if (path === "/backend/status" || path === "/backend/repair") {
+      if (canUseHttpHelper) {
         const fallback = await fetchBackendStatusFromHelper(path, payload);
+        if (path === "/agent-context/task-preflight" && fallback && typeof fallback.status === "string") return fallback;
         if (fallback?.status === "ok") {
           sendCodexPlusDiagnostic("backend_status_bridge_failed_http_fallback_ok", {
             path,
@@ -4055,6 +4517,9 @@
     window.__codexPlusServiceTierTest = {
       applyServiceTierOverride: (method, params, threadIdHint = "") => applyCodexServiceTierRequestOverride(method, params, threadIdHint),
       requestOverride: (message) => codexServiceTierRequestOverride(message),
+      agentContextRequestOverride: (message) => codexAgentContextRequestOverride(message),
+      agentContextExtractGoal: (value) => codexAgentContextExtractGoal(value),
+      agentContextPreflightHint: (preflight) => codexAgentContextPreflightHint(preflight),
       diagnostics: () => [...(window.__codexPlusServiceTierTestDiagnostics || [])],
       setModelCatalog: (catalog = {}) => {
         codexModelCatalog = {
@@ -5984,10 +6449,7 @@
     if (window.__codexUpstreamPendingWorktreeDispatcherPatch === patchVersion) return;
     const patch = async () => {
       try {
-        const module = await loadCodexAppModule("setting-storage-");
-        const dispatcherClass = typeof module.v === "function" && String(module.v).includes("dispatchMessage") ? module.v : null;
-        const dispatcher = dispatcherClass?.getInstance?.();
-        if (!dispatcher || typeof dispatcher.dispatchMessage !== "function") throw new Error("Codex dispatcher unavailable");
+        const { dispatcher } = await loadCodexAppMessageDispatcher();
         if (!dispatcher.__codexUpstreamWorktreeOriginalDispatchMessage) {
           dispatcher.__codexUpstreamWorktreeOriginalDispatchMessage = dispatcher.dispatchMessage.bind(dispatcher);
           dispatcher.dispatchMessage = (type, payload) => {

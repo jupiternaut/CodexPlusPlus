@@ -341,6 +341,14 @@ cd ../..
 cargo fmt --check
 cargo test
 cargo build --release
+
+# Agent Context panel/status 契约烟测，不需要启动 Codex.app
+AGENT_CONTEXT_ROOT=/Users/gengrf/agent-context-system \
+  scripts/smoke-agent-context-panel-status.mjs
+
+# macOS: Agent Context 真实运行态烟测，需要 Codex.app 和 launcher
+AGENT_CONTEXT_ROOT=/Users/gengrf/agent-context-system \
+  scripts/smoke-agent-context-runtime.mjs
 ```
 
 主要结构：
@@ -354,6 +362,9 @@ assets/inject/
 crates/
   codex-plus-core/              启动、注入、配置、更新、安装、桥接等核心逻辑
   codex-plus-data/              会话数据、导出、Provider 同步
+scripts/
+  smoke-agent-context-panel-status.mjs  Agent Context panel/status 契约烟测
+  smoke-agent-context-runtime.mjs  macOS Agent Context 真实运行态烟测
 scripts/installer/
   windows/CodexPlusPlus.nsi     Windows NSIS 安装包
   macos/package-dmg.sh          macOS DMG 打包
