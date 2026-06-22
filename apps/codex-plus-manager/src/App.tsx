@@ -378,6 +378,10 @@ type AgentContextPanelStatus = {
   lastManifestJson: string;
   lastResolutionPlanJson: string;
   lastCodexPreflightMd: string;
+  lastRuntimeTaskMd: string;
+  lastReviewFile: string;
+  lastReviewClientHtml: string;
+  lastReviewLaunchMd: string;
   lastGeneratedAtMs: number;
   accessAudit: AgentContextAccessAudit;
   semanticLaunchd: AgentContextSemanticLaunchd;
@@ -399,6 +403,16 @@ type AgentContextTaskPreflight = {
   sourcesJsonl: string;
   manifestJson: string;
   resolutionPlanJson: string;
+  sessionId: string;
+  runtimeTaskMd: string;
+  runtimeTaskJson: string;
+  reviewFile: string;
+  agentPreflightMd: string;
+  reviewLaunchMd: string;
+  reviewClientHtml: string;
+  reviewServerUrl: string;
+  startServerCommand: string;
+  openClientCommand: string;
 };
 
 type RelayProtocol = "responses" | "chatCompletions";
@@ -839,6 +853,10 @@ const defaultAgentContextPanelStatus: AgentContextPanelStatus = {
   lastManifestJson: "",
   lastResolutionPlanJson: "",
   lastCodexPreflightMd: "",
+  lastRuntimeTaskMd: "",
+  lastReviewFile: "",
+  lastReviewClientHtml: "",
+  lastReviewLaunchMd: "",
   lastGeneratedAtMs: 0,
   accessAudit: {
     auditPath: "",
@@ -3931,6 +3949,10 @@ function AgentContextScreen({
           </div>
 
           <div className="agent-context-files">
+            <AgentContextFileRow label="runtime_task.md" path={status.lastRuntimeTaskMd} onOpen={actions.openAgentContextFile} />
+            <AgentContextFileRow label="review file" path={status.lastReviewFile} onOpen={actions.openAgentContextFile} />
+            <AgentContextFileRow label="review client" path={status.lastReviewClientHtml} onOpen={actions.openAgentContextFile} />
+            <AgentContextFileRow label="review_launch.md" path={status.lastReviewLaunchMd} onOpen={actions.openAgentContextFile} />
             <AgentContextFileRow label="codex_preflight.md" path={status.lastCodexPreflightMd} onOpen={actions.openAgentContextFile} />
             <AgentContextFileRow label="context.md" path={status.lastGeneratedPack} onOpen={actions.openAgentContextFile} />
             <AgentContextFileRow label="sources.jsonl" path={status.lastSourcesJsonl} onOpen={actions.openAgentContextFile} />

@@ -2002,7 +2002,24 @@
   }
 
   function codexAgentContextPreflightHint(preflight) {
-    if (!preflight || preflight.status !== "ok" || !preflight.codexPreflightMd) return "";
+    if (!preflight || preflight.status !== "ok") return "";
+    if (preflight.reviewFile || preflight.runtimeTaskMd || preflight.reviewClientHtml) {
+      return [
+        "",
+        "",
+        codexAgentContextHintMarker,
+        "Doctor Runtime Task has started the first no-index review gate.",
+        "Do not answer the original task yet. Ask the user to review and approve the normalized prompt before Doctor generates local context.",
+        preflight.reviewFile ? `Review file: ${preflight.reviewFile}` : "",
+        preflight.runtimeTaskMd ? `Runtime task: ${preflight.runtimeTaskMd}` : "",
+        preflight.agentPreflightMd ? `Agent preflight: ${preflight.agentPreflightMd}` : "",
+        preflight.reviewClientHtml ? `Review client: ${preflight.reviewClientHtml}` : "",
+        preflight.reviewLaunchMd ? `Review launch: ${preflight.reviewLaunchMd}` : "",
+        preflight.startServerCommand ? `Start review server: ${preflight.startServerCommand}` : "",
+        preflight.openClientCommand ? `Open review client: ${preflight.openClientCommand}` : "",
+      ].filter(Boolean).join("\n");
+    }
+    if (!preflight.codexPreflightMd) return "";
     return [
       "",
       "",
@@ -2056,7 +2073,9 @@
           method,
           threadId: threadId || "",
           sourcesIncluded: result?.sourcesIncluded || 0,
-          hasPreflight: !!result?.codexPreflightMd,
+          hasPreflight: !!result?.codexPreflightMd || !!result?.reviewFile || !!result?.runtimeTaskMd,
+          hasReviewFile: !!result?.reviewFile,
+          hasReviewClient: !!result?.reviewClientHtml,
         });
         return result;
       })

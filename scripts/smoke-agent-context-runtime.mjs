@@ -223,7 +223,7 @@ async function runRendererSmoke() {
       const message = messages.find((item) => item?.type === "send-cli-request-for-host") || messages[0] || null;
       const input = String(message?.params?.input || "");
       return {
-        status: input.includes("[Codex++ Auto Context]") && input.includes("Preflight:") && input.includes("Context:") && input.includes("Sources:")
+        status: input.includes("[Codex++ Auto Context]") && input.includes("Review file:") && input.includes("Runtime task:") && input.includes("Review client:") && !input.includes("Context:")
           ? "ok"
           : "failed",
         messageCount: messages.length,
@@ -231,7 +231,9 @@ async function runRendererSmoke() {
         method: message?.method || "",
         input,
         hasHint: input.includes("[Codex++ Auto Context]"),
-        hasPreflight: input.includes("Preflight:"),
+        hasPreflight: input.includes("Review file:"),
+        hasRuntimeTask: input.includes("Runtime task:"),
+        hasReviewClient: input.includes("Review client:"),
         hasContext: input.includes("Context:"),
         hasSources: input.includes("Sources:"),
         hookVersion,
@@ -284,6 +286,8 @@ async function main() {
       urlCount: result.urlCount || 0,
       hasHint: result.hasHint,
       hasPreflight: result.hasPreflight,
+      hasRuntimeTask: result.hasRuntimeTask,
+      hasReviewClient: result.hasReviewClient,
       hasContext: result.hasContext,
       hasSources: result.hasSources,
       hookVersion: result.hookVersion || "",

@@ -512,26 +512,39 @@ async fn default_helper_serves_agent_context_task_preflight_over_http() {
     assert_eq!(payload["goal"], "开源往事如何在番茄爆火，面向的读者是谁");
     assert_eq!(payload["scope"], "gitProjects");
     assert_eq!(payload["mode"], "fast");
-    assert_eq!(payload["sourcesIncluded"], 4);
-    assert_eq!(payload["codexPreflightMd"], "/tmp/codex_preflight.md");
-    assert_eq!(payload["contextMd"], "/tmp/context.md");
-    assert_eq!(payload["sourcesJsonl"], "/tmp/sources.jsonl");
+    assert_eq!(payload["sourcesIncluded"], 0);
+    assert_eq!(payload["runtimeTaskMd"], "/tmp/runtime_task.md");
+    assert_eq!(payload["reviewFile"], "/tmp/refined_prompt.md");
+    assert_eq!(
+        payload["reviewClientHtml"],
+        "/tmp/doctor-runtime-review-client.html"
+    );
+    assert_eq!(payload["codexPreflightMd"], "");
+    assert_eq!(payload["contextMd"], "");
+    assert_eq!(payload["sourcesJsonl"], "");
 
     let status: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(status_path).unwrap()).unwrap();
     assert_eq!(status["lastStatus"], "ok");
-    assert_eq!(status["lastCodexPreflightMd"], "/tmp/codex_preflight.md");
+    assert_eq!(status["lastRuntimeTaskMd"], "/tmp/runtime_task.md");
+    assert_eq!(status["lastReviewFile"], "/tmp/refined_prompt.md");
+    assert_eq!(status["lastCodexPreflightMd"], "/tmp/refined_prompt.md");
 }
 
 fn write_fake_agent_context_bin(path: &Path) {
     let script = if cfg!(windows) {
         r#"@echo off
-echo {"status":"ok","goal":"开源往事如何在番茄爆火，面向的读者是谁","source_scope":"gitProjects","mode":"fast","sources_included":4,"preflight_markdown_path":"/tmp/codex_preflight.md","context_md_path":"/tmp/context.md","sources_jsonl_path":"/tmp/sources.jsonl","manifest_json_path":"/tmp/manifest.json","resolution_plan_json_path":"/tmp/resolution_plan.json"}
+if not "%1"=="runtime-task" exit /b 7
+echo {"status":"awaiting_context_generation","goal":"开源往事如何在番茄爆火，面向的读者是谁","session_id":"runtime-task-test","stage":"clarify_review","review_file":"/tmp/refined_prompt.md","runtime_task_md_path":"/tmp/runtime_task.md","runtime_task_json_path":"/tmp/runtime_task.json","agent_preflight":{"agent_preflight_md_path":"/tmp/agent_preflight.md"},"review_launch":{"review_launch_md_path":"/tmp/review_launch.md"},"client_html_path":"/tmp/doctor-runtime-review-client.html","review_server_url":"http://127.0.0.1:8765/","start_server_command":"doctor runtime-review-server --session-id runtime-task-test","open_client_command":"open /tmp/doctor-runtime-review-client.html"}
 "#
     } else {
         r#"#!/bin/sh
+if [ "$1" != "runtime-task" ]; then
+  echo "expected runtime-task, got $1" >&2
+  exit 7
+fi
 cat <<'JSON'
-{"status":"ok","goal":"开源往事如何在番茄爆火，面向的读者是谁","source_scope":"gitProjects","mode":"fast","sources_included":4,"preflight_markdown_path":"/tmp/codex_preflight.md","context_md_path":"/tmp/context.md","sources_jsonl_path":"/tmp/sources.jsonl","manifest_json_path":"/tmp/manifest.json","resolution_plan_json_path":"/tmp/resolution_plan.json"}
+{"status":"awaiting_context_generation","goal":"开源往事如何在番茄爆火，面向的读者是谁","session_id":"runtime-task-test","stage":"clarify_review","review_file":"/tmp/refined_prompt.md","runtime_task_md_path":"/tmp/runtime_task.md","runtime_task_json_path":"/tmp/runtime_task.json","agent_preflight":{"agent_preflight_md_path":"/tmp/agent_preflight.md"},"review_launch":{"review_launch_md_path":"/tmp/review_launch.md"},"client_html_path":"/tmp/doctor-runtime-review-client.html","review_server_url":"http://127.0.0.1:8765/","start_server_command":"doctor runtime-review-server --session-id runtime-task-test","open_client_command":"open /tmp/doctor-runtime-review-client.html"}
 JSON
 "#
     };

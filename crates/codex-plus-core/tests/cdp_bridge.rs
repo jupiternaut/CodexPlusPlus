@@ -523,7 +523,7 @@ fn injection_script_exposes_agent_context_default_preflight_hook() {
     assert!(script.contains("codexAgentContextPreflightHint"));
     assert!(script.contains("codexAgentContextAppendHint"));
     assert!(script.contains(
-        "Before answering, read the local preflight/context files generated for this task."
+        "Do not answer the original task yet. Ask the user to review and approve the normalized prompt before Doctor generates local context."
     ));
     assert!(script.contains("thread/start"));
     assert!(script.contains("turn/start"));
@@ -542,12 +542,15 @@ fn injection_script_appends_agent_context_preflight_to_turn_start() {
         .expect("turn input should be a string");
     assert!(input.contains("开源往事如何在番茄爆火"));
     assert!(input.contains("[Codex++ Auto Context]"));
-    assert!(input.contains("Preflight: /tmp/codex_preflight.md"));
-    assert!(input.contains("Context: /tmp/context.md"));
-    assert!(input.contains("Sources: /tmp/sources.jsonl"));
+    assert!(input.contains("Doctor Runtime Task has started the first no-index review gate."));
+    assert!(input.contains("Review file: /tmp/refined_prompt.md"));
+    assert!(input.contains("Runtime task: /tmp/runtime_task.md"));
+    assert!(input.contains("Review client: /tmp/doctor-runtime-review-client.html"));
+    assert!(!input.contains("Context: /tmp/context.md"));
+    assert!(!input.contains("Sources: /tmp/sources.jsonl"));
 
     assert_eq!(result["diagnosticStatus"], "ok");
-    assert_eq!(result["diagnosticSourcesIncluded"], 3);
+    assert_eq!(result["diagnosticHasReviewFile"], true);
 }
 
 #[test]
@@ -746,12 +749,17 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
       return {{
         status: "ok",
         goal: payload.goal,
-        sourcesIncluded: 3,
-        codexPreflightMd: "/tmp/codex_preflight.md",
-        contextMd: "/tmp/context.md",
-        sourcesJsonl: "/tmp/sources.jsonl",
-        manifestJson: "/tmp/manifest.json",
-        resolutionPlanJson: "/tmp/resolution_plan.json",
+        sourcesIncluded: 0,
+        sessionId: "codex-plus-test",
+        runtimeTaskMd: "/tmp/runtime_task.md",
+        runtimeTaskJson: "/tmp/runtime_task.json",
+        reviewFile: "/tmp/refined_prompt.md",
+        agentPreflightMd: "/tmp/agent_preflight.md",
+        reviewLaunchMd: "/tmp/review_launch.md",
+        reviewClientHtml: "/tmp/doctor-runtime-review-client.html",
+        reviewServerUrl: "http://127.0.0.1:8765/",
+        startServerCommand: "doctor runtime-review-server --session-id codex-plus-test",
+        openClientCommand: "open /tmp/doctor-runtime-review-client.html",
       }};
     }}
     if (path === "/diagnostics/log") return {{ status: "ok" }};
@@ -796,6 +804,7 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
     turnInput: message.params.input,
     diagnosticStatus: diagnostic?.detail?.status || "",
     diagnosticSourcesIncluded: diagnostic?.detail?.sourcesIncluded || 0,
+    diagnosticHasReviewFile: diagnostic?.detail?.hasReviewFile || false,
   }}));
 }})().catch((error) => {{
   console.error(error && error.stack ? error.stack : error);

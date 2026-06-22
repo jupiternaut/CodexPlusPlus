@@ -347,6 +347,8 @@ AGENT_CONTEXT_ROOT=/Users/gengrf/agent-context-system \
   scripts/smoke-agent-context-panel-status.mjs
 
 # macOS: Agent Context 真实运行态烟测，需要 Codex.app 和 launcher
+# 验证 turn/start 会先启动 Doctor runtime-task，并注入 review file/client，
+# 不会把 context.md/sources.jsonl 直接塞进第一轮请求。
 AGENT_CONTEXT_ROOT=/Users/gengrf/agent-context-system \
   scripts/smoke-agent-context-runtime.mjs
 ```

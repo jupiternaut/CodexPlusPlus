@@ -59,6 +59,14 @@ pub struct AgentContextPanelStatus {
     #[serde(default)]
     pub last_codex_preflight_md: String,
     #[serde(default)]
+    pub last_runtime_task_md: String,
+    #[serde(default)]
+    pub last_review_file: String,
+    #[serde(default)]
+    pub last_review_client_html: String,
+    #[serde(default)]
+    pub last_review_launch_md: String,
+    #[serde(default)]
     pub last_generated_at_ms: u128,
     #[serde(default)]
     pub access_audit: AgentContextPanelAccessAudit,
@@ -87,6 +95,10 @@ impl Default for AgentContextPanelStatus {
             last_manifest_json: String::new(),
             last_resolution_plan_json: String::new(),
             last_codex_preflight_md: String::new(),
+            last_runtime_task_md: String::new(),
+            last_review_file: String::new(),
+            last_review_client_html: String::new(),
+            last_review_launch_md: String::new(),
             last_generated_at_ms: 0,
             access_audit: AgentContextPanelAccessAudit::default(),
             semantic_launchd: AgentContextPanelSemanticLaunchd::default(),
@@ -375,7 +387,7 @@ pub struct AgentContextLaunchPrewarm {
     pub mode: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentContextTaskPreflight {
     pub status: String,
@@ -389,6 +401,16 @@ pub struct AgentContextTaskPreflight {
     pub sources_jsonl: String,
     pub manifest_json: String,
     pub resolution_plan_json: String,
+    pub session_id: String,
+    pub runtime_task_md: String,
+    pub runtime_task_json: String,
+    pub review_file: String,
+    pub agent_preflight_md: String,
+    pub review_launch_md: String,
+    pub review_client_html: String,
+    pub review_server_url: String,
+    pub start_server_command: String,
+    pub open_client_command: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
@@ -573,6 +595,14 @@ struct AgentContextRuntimePanelStatus {
     last_resolution_plan_json: Option<String>,
     #[serde(default)]
     last_codex_preflight_md: Option<String>,
+    #[serde(default)]
+    last_runtime_task_md: Option<String>,
+    #[serde(default)]
+    last_review_file: Option<String>,
+    #[serde(default)]
+    last_review_client_html: Option<String>,
+    #[serde(default)]
+    last_review_launch_md: Option<String>,
     #[serde(default)]
     access_audit: Option<AgentContextRuntimeAccessAudit>,
     #[serde(default)]
@@ -901,7 +931,7 @@ struct AgentContextRuntimeSemanticReadinessSummary {
     earliest_multi_day_check_after: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 struct AgentContextRuntimeCodexPreflight {
     #[serde(default)]
     status: String,
@@ -909,6 +939,10 @@ struct AgentContextRuntimeCodexPreflight {
     error: String,
     #[serde(default)]
     goal: String,
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    stage: String,
     #[serde(default)]
     source_scope: String,
     #[serde(default)]
@@ -925,6 +959,36 @@ struct AgentContextRuntimeCodexPreflight {
     manifest_json_path: Option<String>,
     #[serde(default)]
     resolution_plan_json_path: Option<String>,
+    #[serde(default)]
+    runtime_task_md_path: String,
+    #[serde(default)]
+    runtime_task_json_path: String,
+    #[serde(default)]
+    review_file: String,
+    #[serde(default)]
+    agent_preflight: Option<AgentContextRuntimeTaskAgentPreflight>,
+    #[serde(default)]
+    review_launch: Option<AgentContextRuntimeTaskReviewLaunch>,
+    #[serde(default)]
+    client_html_path: String,
+    #[serde(default)]
+    review_server_url: String,
+    #[serde(default)]
+    start_server_command: String,
+    #[serde(default)]
+    open_client_command: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct AgentContextRuntimeTaskAgentPreflight {
+    #[serde(default)]
+    agent_preflight_md_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct AgentContextRuntimeTaskReviewLaunch {
+    #[serde(default)]
+    review_launch_md_path: String,
 }
 
 pub fn load_agent_context_panel_state() -> anyhow::Result<AgentContextPanelState> {
@@ -942,6 +1006,18 @@ pub fn run_agent_context_task_preflight(goal: &str) -> anyhow::Result<AgentConte
     let goal = goal.trim();
     if goal.is_empty() {
         return Err(anyhow!("任务目标不能为空。"));
+    }
+    if !config.auto_context {
+        let preflight = AgentContextTaskPreflight {
+            status: "disabled".to_string(),
+            message: "Auto Context 已关闭，未启动 Doctor runtime-task。".to_string(),
+            goal: goal.to_string(),
+            scope: config.scope.clone(),
+            mode: config.mode.clone(),
+            ..AgentContextTaskPreflight::default()
+        };
+        save_task_preflight_status(&preflight)?;
+        return Ok(preflight);
     }
     let output = run_preflight_command(&config, goal)?;
     if !output.status.success() {
@@ -961,7 +1037,7 @@ pub fn run_agent_context_task_preflight(goal: &str) -> anyhow::Result<AgentConte
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let runtime: AgentContextRuntimeCodexPreflight = serde_json::from_str(&stdout)
-        .with_context(|| "failed to parse agent-context codex-preflight output")?;
+        .with_context(|| "failed to parse agent-context runtime-task output")?;
     let preflight = runtime_preflight_to_task_preflight(runtime, &config, goal);
     save_task_preflight_status(&preflight)?;
     Ok(preflight)
@@ -1151,20 +1227,13 @@ fn run_preflight_command(
 ) -> anyhow::Result<std::process::Output> {
     let mut command = Command::new(&config.agent_context_bin);
     command
-        .arg("codex-preflight")
+        .arg("runtime-task")
         .arg("--goal")
         .arg(goal)
         .arg("--out")
         .arg(&config.agent_context_root)
-        .arg("--source-scope")
-        .arg(&config.scope)
-        .arg("--mode")
-        .arg(&config.mode)
-        .arg("--limit")
-        .arg("8");
-    if !config.auto_context {
-        command.arg("--no-auto-context");
-    }
+        .arg("--port")
+        .arg("8765");
     command
         .output()
         .with_context(|| format!("failed to execute {}", config.agent_context_bin))
@@ -1444,6 +1513,10 @@ fn runtime_status_to_panel_status(
         last_manifest_json: runtime.last_manifest_json.unwrap_or_default(),
         last_resolution_plan_json: runtime.last_resolution_plan_json.unwrap_or_default(),
         last_codex_preflight_md: runtime.last_codex_preflight_md.unwrap_or_default(),
+        last_runtime_task_md: runtime.last_runtime_task_md.unwrap_or_default(),
+        last_review_file: runtime.last_review_file.unwrap_or_default(),
+        last_review_client_html: runtime.last_review_client_html.unwrap_or_default(),
+        last_review_launch_md: runtime.last_review_launch_md.unwrap_or_default(),
         last_generated_at_ms: now_ms(),
         access_audit: runtime_access_audit_to_panel(runtime.access_audit.unwrap_or_default()),
         semantic_launchd: runtime_semantic_launchd_to_panel(
@@ -1673,11 +1746,28 @@ fn runtime_preflight_to_task_preflight(
     config: &AgentContextPanelConfig,
     requested_goal: &str,
 ) -> AgentContextTaskPreflight {
-    let status = non_empty_or_default(&runtime.status, || "ok".to_string());
+    let runtime_status = non_empty_or_default(&runtime.status, || "ok".to_string());
+    let status = normalize_task_preflight_status(&runtime_status, &runtime.stage);
     let goal = non_empty_or_default(&runtime.goal, || requested_goal.to_string());
     let scope = non_empty_or_default(&runtime.source_scope, || config.scope.clone());
     let mode = non_empty_or_default(&runtime.mode, || config.mode.clone());
-    let message = task_preflight_message(&status, runtime.sources_included, &runtime.error);
+    let message = task_preflight_message(
+        &status,
+        runtime.sources_included,
+        &runtime.error,
+        &runtime.stage,
+        &runtime.review_file,
+    );
+    let agent_preflight_md = runtime
+        .agent_preflight
+        .as_ref()
+        .map(|preflight| preflight.agent_preflight_md_path.clone())
+        .unwrap_or_default();
+    let review_launch_md = runtime
+        .review_launch
+        .as_ref()
+        .map(|launch| launch.review_launch_md_path.clone())
+        .unwrap_or_default();
     AgentContextTaskPreflight {
         status,
         message,
@@ -1690,11 +1780,41 @@ fn runtime_preflight_to_task_preflight(
         sources_jsonl: runtime.sources_jsonl_path.unwrap_or_default(),
         manifest_json: runtime.manifest_json_path.unwrap_or_default(),
         resolution_plan_json: runtime.resolution_plan_json_path.unwrap_or_default(),
+        session_id: runtime.session_id,
+        runtime_task_md: runtime.runtime_task_md_path,
+        runtime_task_json: runtime.runtime_task_json_path,
+        review_file: runtime.review_file,
+        agent_preflight_md,
+        review_launch_md,
+        review_client_html: runtime.client_html_path,
+        review_server_url: runtime.review_server_url,
+        start_server_command: runtime.start_server_command,
+        open_client_command: runtime.open_client_command,
     }
 }
 
-fn task_preflight_message(status: &str, sources_included: usize, error: &str) -> String {
+fn normalize_task_preflight_status(status: &str, stage: &str) -> String {
+    if status == "awaiting_context_generation" || stage == "clarify_review" {
+        "ok".to_string()
+    } else {
+        status.to_string()
+    }
+}
+
+fn task_preflight_message(
+    status: &str,
+    sources_included: usize,
+    error: &str,
+    stage: &str,
+    review_file: &str,
+) -> String {
     match status {
+        "ok" | "awaiting_context_generation" if !review_file.trim().is_empty() => {
+            "Doctor 已启动第一阶段审查，请先确认 refined_prompt.md，再生成上下文。".to_string()
+        }
+        "ok" | "awaiting_context_generation" if stage == "clarify_review" => {
+            "Doctor 已启动第一阶段审查，请先确认需求归一化。".to_string()
+        }
         "ok" => format!("任务预检已生成，包含 {sources_included} 条来源。"),
         "disabled" => "Auto Context 已关闭，任务预检只生成禁用说明。".to_string(),
         "resolver_failed" => {
@@ -1736,10 +1856,34 @@ fn save_task_preflight_status(preflight: &AgentContextTaskPreflight) -> anyhow::
         } else {
             preflight.resolution_plan_json.clone()
         },
-        last_codex_preflight_md: if preflight.codex_preflight_md.is_empty() {
-            previous.last_codex_preflight_md
-        } else {
+        last_codex_preflight_md: if !preflight.codex_preflight_md.is_empty() {
             preflight.codex_preflight_md.clone()
+        } else if !preflight.review_file.is_empty() {
+            preflight.review_file.clone()
+        } else if !preflight.agent_preflight_md.is_empty() {
+            preflight.agent_preflight_md.clone()
+        } else {
+            previous.last_codex_preflight_md
+        },
+        last_runtime_task_md: if preflight.runtime_task_md.is_empty() {
+            previous.last_runtime_task_md
+        } else {
+            preflight.runtime_task_md.clone()
+        },
+        last_review_file: if preflight.review_file.is_empty() {
+            previous.last_review_file
+        } else {
+            preflight.review_file.clone()
+        },
+        last_review_client_html: if preflight.review_client_html.is_empty() {
+            previous.last_review_client_html
+        } else {
+            preflight.review_client_html.clone()
+        },
+        last_review_launch_md: if preflight.review_launch_md.is_empty() {
+            previous.last_review_launch_md
+        } else {
+            preflight.review_launch_md.clone()
         },
         access_audit: previous.access_audit,
         semantic_launchd: previous.semantic_launchd,
@@ -2362,6 +2506,10 @@ mod tests {
                 last_manifest_json: Some("/tmp/manifest.json".to_string()),
                 last_resolution_plan_json: Some("/tmp/resolution_plan.json".to_string()),
                 last_codex_preflight_md: Some("/tmp/codex_preflight.md".to_string()),
+                last_runtime_task_md: Some("/tmp/runtime_task.md".to_string()),
+                last_review_file: Some("/tmp/refined_prompt.md".to_string()),
+                last_review_client_html: Some("/tmp/doctor-runtime-review-client.html".to_string()),
+                last_review_launch_md: Some("/tmp/review_launch.md".to_string()),
                 access_audit: Some(AgentContextRuntimeAccessAudit {
                     audit_path: "/tmp/access_audit.jsonl".to_string(),
                     events_total: 3,
@@ -2689,6 +2837,7 @@ mod tests {
                 sources_jsonl_path: Some("/tmp/sources.jsonl".to_string()),
                 manifest_json_path: Some("/tmp/manifest.json".to_string()),
                 resolution_plan_json_path: Some("/tmp/resolution_plan.json".to_string()),
+                ..AgentContextRuntimeCodexPreflight::default()
             },
             &config,
             "ignored",
@@ -2700,5 +2849,52 @@ mod tests {
         assert_eq!(preflight.mode, "deep");
         assert_eq!(preflight.codex_preflight_md, "/tmp/codex_preflight.md");
         assert_eq!(preflight.context_md, "/tmp/context.md");
+    }
+
+    #[test]
+    fn runtime_task_maps_first_review_gate_contract() {
+        let config = AgentContextPanelConfig {
+            auto_context: true,
+            scope: "all".to_string(),
+            mode: "fast".to_string(),
+            agent_context_root: "/tmp/agent-context-system".to_string(),
+            agent_context_bin: "/tmp/agent-context".to_string(),
+        };
+        let preflight = runtime_preflight_to_task_preflight(
+            AgentContextRuntimeCodexPreflight {
+                status: "awaiting_context_generation".to_string(),
+                goal: "开源往事如何在番茄爆火".to_string(),
+                session_id: "runtime-task-test".to_string(),
+                stage: "clarify_review".to_string(),
+                review_file: "/tmp/refined_prompt.md".to_string(),
+                runtime_task_md_path: "/tmp/runtime_task.md".to_string(),
+                runtime_task_json_path: "/tmp/runtime_task.json".to_string(),
+                agent_preflight: Some(AgentContextRuntimeTaskAgentPreflight {
+                    agent_preflight_md_path: "/tmp/agent_preflight.md".to_string(),
+                }),
+                review_launch: Some(AgentContextRuntimeTaskReviewLaunch {
+                    review_launch_md_path: "/tmp/review_launch.md".to_string(),
+                }),
+                client_html_path: "/tmp/doctor-runtime-review-client.html".to_string(),
+                review_server_url: "http://127.0.0.1:8765/".to_string(),
+                start_server_command: "doctor runtime-review-server --session-id runtime-task-test"
+                    .to_string(),
+                open_client_command: "open /tmp/doctor-runtime-review-client.html".to_string(),
+                ..AgentContextRuntimeCodexPreflight::default()
+            },
+            &config,
+            "ignored",
+        );
+
+        assert_eq!(preflight.status, "ok");
+        assert!(preflight.message.contains("第一阶段审查"));
+        assert_eq!(preflight.sources_included, 0);
+        assert_eq!(preflight.context_md, "");
+        assert_eq!(preflight.review_file, "/tmp/refined_prompt.md");
+        assert_eq!(preflight.runtime_task_md, "/tmp/runtime_task.md");
+        assert_eq!(
+            preflight.review_client_html,
+            "/tmp/doctor-runtime-review-client.html"
+        );
     }
 }

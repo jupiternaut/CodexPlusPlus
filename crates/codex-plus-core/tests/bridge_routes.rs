@@ -1109,16 +1109,26 @@ impl BridgeRuntimeService for FakeRuntime {
     async fn agent_context_task_preflight(&self, payload: Value) -> anyhow::Result<Value> {
         Ok(json!({
             "status": "ok",
-            "message": "任务预检已生成，包含 2 条来源。",
+            "message": "Doctor 已启动第一阶段审查，请先确认 refined_prompt.md，再生成上下文。",
             "goal": payload.get("goal").and_then(Value::as_str).unwrap_or_default(),
             "scope": "gitProjects",
             "mode": "fast",
-            "sourcesIncluded": 2,
-            "codexPreflightMd": "/tmp/codex_preflight.md",
-            "contextMd": "/tmp/context.md",
-            "sourcesJsonl": "/tmp/sources.jsonl",
-            "manifestJson": "/tmp/manifest.json",
-            "resolutionPlanJson": "/tmp/resolution_plan.json"
+            "sourcesIncluded": 0,
+            "codexPreflightMd": "",
+            "contextMd": "",
+            "sourcesJsonl": "",
+            "manifestJson": "",
+            "resolutionPlanJson": "",
+            "sessionId": "runtime-task-test",
+            "runtimeTaskMd": "/tmp/runtime_task.md",
+            "runtimeTaskJson": "/tmp/runtime_task.json",
+            "reviewFile": "/tmp/refined_prompt.md",
+            "agentPreflightMd": "/tmp/agent_preflight.md",
+            "reviewLaunchMd": "/tmp/review_launch.md",
+            "reviewClientHtml": "/tmp/doctor-runtime-review-client.html",
+            "reviewServerUrl": "http://127.0.0.1:8765/",
+            "startServerCommand": "doctor runtime-review-server --session-id runtime-task-test",
+            "openClientCommand": "open /tmp/doctor-runtime-review-client.html"
         }))
     }
 

@@ -575,6 +575,7 @@ pub fn run_agent_context_task_preflight(
                 sources_jsonl: String::new(),
                 manifest_json: String::new(),
                 resolution_plan_json: String::new(),
+                ..codex_plus_core::agent_context::AgentContextTaskPreflight::default()
             },
         );
     }
@@ -594,6 +595,7 @@ pub fn run_agent_context_task_preflight(
                 sources_jsonl: String::new(),
                 manifest_json: String::new(),
                 resolution_plan_json: String::new(),
+                ..codex_plus_core::agent_context::AgentContextTaskPreflight::default()
             },
         ),
     }
