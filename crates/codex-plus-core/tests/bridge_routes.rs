@@ -44,6 +44,10 @@ async fn bridge_routes_cover_all_current_paths() {
             "/agent-context/answer-review",
             json!({"reason": "approved from test"}),
         ),
+        (
+            "/agent-context/execution-review",
+            json!({"reason": "approved answer from test", "answerText": "Recorded answer"}),
+        ),
         ("/usage/summary", json!({})),
         ("/cache/recent", json!({"limit": 12})),
         ("/ads", json!({})),
@@ -1178,6 +1182,25 @@ impl BridgeRuntimeService for FakeRuntime {
             "contextMd": "/tmp/context.md",
             "sourcesJsonl": "/tmp/sources.jsonl",
             "reviewFile": "/tmp/answer_packet.md",
+            "agentPreflightMd": "/tmp/agent_preflight.md",
+            "nextCommands": []
+        }))
+    }
+
+    async fn agent_context_execution_review(&self, _payload: Value) -> anyhow::Result<Value> {
+        Ok(json!({
+            "status": "awaiting_execution",
+            "message": "Doctor has recorded and approved the answer; execution review is ready.",
+            "sessionId": "runtime-task-test",
+            "safeToSendModel": false,
+            "recordedAnswerFile": "/tmp/codex-plus-answer.md",
+            "answerMd": "/tmp/answer.md",
+            "executionReviewJson": "/tmp/execution_review.json",
+            "executionReportMd": "/tmp/execution_report.md",
+            "executionArtifactsJsonl": "/tmp/execution_artifacts.jsonl",
+            "executionArtifactIndexMd": "/tmp/execution_artifacts.md",
+            "artifactsDir": "/tmp/artifacts",
+            "reviewFile": "/tmp/execution_report.md",
             "agentPreflightMd": "/tmp/agent_preflight.md",
             "nextCommands": []
         }))

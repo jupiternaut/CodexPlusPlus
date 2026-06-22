@@ -1190,6 +1190,7 @@
   const codexAgentContextPreflightCache = new Map();
   let codexAgentContextLastPreflight = null;
   let codexAgentContextLastModelInputReview = null;
+  let codexAgentContextLastAnswerReview = null;
   const codexPluginLegacyEntryUnlockBeforeVersion = "26.601.2237";
 
   function parseCodexVersionParts(version) {
@@ -2067,6 +2068,25 @@
       && Date.now() - Number(codexAgentContextLastModelInputReview.at || 0) <= 30 * 60 * 1000;
   }
 
+  function codexAgentContextRememberAnswerReview(result) {
+    if (!result || typeof result !== "object") return;
+    const answerPacket = String(result.answerPacketMd || result.reviewFile || "");
+    if (!result.sessionId || !answerPacket) return;
+    codexAgentContextLastAnswerReview = {
+      sessionId: String(result.sessionId || ""),
+      answerPacketMd: answerPacket,
+      answerMd: String(result.answerMd || ""),
+      reviewFile: String(result.reviewFile || ""),
+      agentPreflightMd: String(result.agentPreflightMd || ""),
+      at: Date.now(),
+    };
+  }
+
+  function codexAgentContextHasRecentAnswerReview() {
+    return !!codexAgentContextLastAnswerReview?.sessionId
+      && Date.now() - Number(codexAgentContextLastAnswerReview.at || 0) <= 60 * 60 * 1000;
+  }
+
   function codexAgentContextIsModelInputApproval(text) {
     const raw = String(text || "").trim();
     if (!raw || raw.length > 800) return false;
@@ -2090,6 +2110,17 @@
     const approval = raw.includes("同意") || raw.includes("确认") || raw.includes("批准") || raw.includes("继续") || raw.includes("用这个") || lower.includes("approve") || lower.includes("accepted") || lower.includes("use this");
     const target = lower.includes("model_input") || lower.includes("model input") || lower.includes("context") || lower.includes("answer") || raw.includes("模型输入") || raw.includes("上下文") || raw.includes("回答");
     return approval && target;
+  }
+
+  function codexAgentContextIsExecutionApproval(text) {
+    const raw = String(text || "").trim();
+    if (!raw || raw.length > 800) return false;
+    if (!codexAgentContextHasRecentAnswerReview()) return false;
+    const lower = raw.toLowerCase();
+    const approval = raw.includes("同意") || raw.includes("确认") || raw.includes("批准") || raw.includes("用这个") || lower.includes("approve") || lower.includes("accepted") || lower.includes("use this");
+    const answerTarget = raw.includes("答案") || raw.includes("回答") || lower.includes("answer");
+    const executionTarget = raw.includes("执行") || raw.includes("本机") || raw.includes("程序") || raw.includes("产出") || lower.includes("execution") || lower.includes("artifact");
+    return approval && answerTarget && executionTarget;
   }
 
   function codexAgentContextModelInputReviewHint(result) {
@@ -2128,6 +2159,37 @@
       result.answerMd ? `Answer draft: ${result.answerMd}` : "",
       result.contextMd ? `Context: ${result.contextMd}` : "",
       result.sourcesJsonl ? `Sources: ${result.sourcesJsonl}` : "",
+      result.agentPreflightMd ? `Agent preflight: ${result.agentPreflightMd}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  function codexAgentContextExecutionReviewHint(result) {
+    if (!result || typeof result !== "object") return "";
+    if (result.status === "failed") {
+      return [
+        "",
+        "",
+        codexAgentContextHintMarker,
+        "Doctor could not enter execution review.",
+        result.message ? `Reason: ${result.message}` : "",
+        "Do not run local commands until Doctor has recorded and approved the answer.",
+      ].filter(Boolean).join("\n");
+    }
+    const executionReport = result.executionReportMd || result.reviewFile || "";
+    if (!executionReport) return "";
+    return [
+      "",
+      "",
+      codexAgentContextHintMarker,
+      "Doctor has recorded and approved the answer; execution review is ready.",
+      "Do not run any local command yet. Ask the user to review the execution report and approve the exact command or artifact step first.",
+      result.sessionId ? `Runtime session: ${result.sessionId}` : "",
+      result.recordedAnswerFile ? `Recorded answer: ${result.recordedAnswerFile}` : "",
+      result.answerMd ? `Answer: ${result.answerMd}` : "",
+      result.executionReviewJson ? `Execution review: ${result.executionReviewJson}` : "",
+      `Execution report: ${executionReport}`,
+      result.executionArtifactsJsonl ? `Artifacts manifest: ${result.executionArtifactsJsonl}` : "",
+      result.executionArtifactIndexMd ? `Artifact index: ${result.executionArtifactIndexMd}` : "",
       result.agentPreflightMd ? `Agent preflight: ${result.agentPreflightMd}` : "",
     ].filter(Boolean).join("\n");
   }
@@ -2236,6 +2298,7 @@
           hasAnswerPacket: !!result?.answerPacketMd || !!result?.reviewFile,
           hasApprovedModelInput: !!result?.approvedModelInputMd,
         });
+        codexAgentContextRememberAnswerReview(result);
         return result;
       })
       .catch((error) => {
@@ -2243,6 +2306,69 @@
           method,
           threadId: threadId || "",
           sessionId,
+          errorName: error?.name || "",
+          errorMessage: error?.message || String(error),
+        });
+        return null;
+      });
+  }
+
+  function codexAgentContextNodeText(node) {
+    return String(node?.innerText || node?.textContent || "").replace(/\s+\n/g, "\n").trim();
+  }
+
+  function codexAgentContextLastAssistantText() {
+    const selectors = [
+      "[data-message-author-role='assistant']",
+      "[data-testid='conversation-turn-assistant']",
+      "[data-testid*='assistant']",
+      "[data-author='assistant']",
+      "article[data-role='assistant']",
+      "article[aria-label*='assistant']",
+      "article[aria-label*='Assistant']",
+    ];
+    const candidates = [];
+    for (const selector of selectors) {
+      try {
+        document.querySelectorAll(selector).forEach((node) => {
+          const text = codexAgentContextNodeText(node);
+          if (text.length >= 20 && !text.includes(codexAgentContextHintMarker)) candidates.push(text);
+        });
+      } catch (_) {}
+    }
+    return candidates.length ? candidates[candidates.length - 1] : "";
+  }
+
+  function codexAgentContextAnswerTextFromApproval(text) {
+    const raw = String(text || "");
+    const match = raw.match(/(?:答案|回答|answer)\s*[:：]\s*([\s\S]{20,})$/i);
+    if (match?.[1]?.trim()) return match[1].trim();
+    return "";
+  }
+
+  async function codexAgentContextExecutionReview(method, threadId, reason) {
+    const sessionId = codexAgentContextLastAnswerReview?.sessionId || "";
+    if (!sessionId) return null;
+    const answerText = codexAgentContextAnswerTextFromApproval(reason) || codexAgentContextLastAssistantText();
+    return postJson("/agent-context/execution-review", { sessionId, method, threadId: threadId || "", reason: reason || "approved answer from live turn", answerText })
+      .then((result) => {
+        sendCodexPlusDiagnostic("agent_context_execution_review", {
+          status: result?.status || "unknown",
+          method,
+          threadId: threadId || "",
+          sessionId,
+          hasAnswerText: !!answerText,
+          hasExecutionReport: !!result?.executionReportMd || !!result?.reviewFile,
+          hasArtifactIndex: !!result?.executionArtifactIndexMd,
+        });
+        return result;
+      })
+      .catch((error) => {
+        sendCodexPlusDiagnostic("agent_context_execution_review_failed", {
+          method,
+          threadId: threadId || "",
+          sessionId,
+          hasAnswerText: !!answerText,
           errorName: error?.name || "",
           errorMessage: error?.message || String(error),
         });
@@ -2270,6 +2396,12 @@
     const threadId = codexServiceTierThreadIdForRequest(target.method, target.params, message.conversationId);
     const goal = codexAgentContextExtractGoal(target.params);
     if (!goal) return message;
+    if (codexAgentContextIsExecutionApproval(goal)) {
+      return codexAgentContextExecutionReview(target.method, threadId, goal).then((result) => {
+        const hint = codexAgentContextExecutionReviewHint(result);
+        return codexAgentContextMessageWithHint(message, target, hint);
+      });
+    }
     if (codexAgentContextIsAnswerApproval(goal)) {
       return codexAgentContextAnswerReview(target.method, threadId, goal).then((result) => {
         const hint = codexAgentContextAnswerReviewHint(result);
@@ -4674,7 +4806,7 @@
   }
 
   async function postJson(path, payload) {
-    const isAgentContextLongTask = path === "/agent-context/task-preflight" || path === "/agent-context/model-input-review" || path === "/agent-context/answer-review";
+    const isAgentContextLongTask = path === "/agent-context/task-preflight" || path === "/agent-context/model-input-review" || path === "/agent-context/answer-review" || path === "/agent-context/execution-review";
     const canUseHttpHelper = path === "/backend/status" || path === "/backend/repair" || isAgentContextLongTask || path === "/usage/summary" || path === "/cache/recent";
     if (!window.__codexSessionDeleteBridge) {
       if (canUseHttpHelper) {
@@ -4830,6 +4962,7 @@
       agentContextPreflightHint: (preflight) => codexAgentContextPreflightHint(preflight),
       agentContextModelInputReviewHint: (result) => codexAgentContextModelInputReviewHint(result),
       agentContextAnswerReviewHint: (result) => codexAgentContextAnswerReviewHint(result),
+      agentContextExecutionReviewHint: (result) => codexAgentContextExecutionReviewHint(result),
       diagnostics: () => [...(window.__codexPlusServiceTierTestDiagnostics || [])],
       setModelCatalog: (catalog = {}) => {
         codexModelCatalog = {

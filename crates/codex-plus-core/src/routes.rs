@@ -82,6 +82,7 @@ pub trait BridgeRuntimeService: Send + Sync {
     async fn agent_context_task_preflight(&self, payload: Value) -> anyhow::Result<Value>;
     async fn agent_context_model_input_review(&self, payload: Value) -> anyhow::Result<Value>;
     async fn agent_context_answer_review(&self, payload: Value) -> anyhow::Result<Value>;
+    async fn agent_context_execution_review(&self, payload: Value) -> anyhow::Result<Value>;
     async fn usage_summary(&self) -> anyhow::Result<Value>;
     async fn cache_telemetry(&self, payload: Value) -> anyhow::Result<Value>;
     async fn ads(&self) -> anyhow::Result<Value>;
@@ -185,6 +186,11 @@ pub async fn handle_bridge_request(
         "/agent-context/answer-review" => {
             ctx.runtime
                 .agent_context_answer_review(payload.clone())
+                .await
+        }
+        "/agent-context/execution-review" => {
+            ctx.runtime
+                .agent_context_execution_review(payload.clone())
                 .await
         }
         "/usage/summary" => ctx.runtime.usage_summary().await,
@@ -516,6 +522,18 @@ impl BridgeRuntimeService for CoreRuntimeService {
             .and_then(Value::as_str)
             .unwrap_or("approved from Codex++ bridge");
         crate::agent_context::run_agent_context_answer_review_prepare(reason)
+    }
+
+    async fn agent_context_execution_review(&self, payload: Value) -> anyhow::Result<Value> {
+        let reason = payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("approved answer from Codex++ bridge");
+        let answer_text = payload
+            .get("answerText")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        crate::agent_context::run_agent_context_execution_review_prepare(reason, answer_text)
     }
 
     async fn usage_summary(&self) -> anyhow::Result<Value> {

@@ -684,6 +684,21 @@ impl BridgeRuntimeService for LauncherRuntimeService {
         codex_plus_core::agent_context::run_agent_context_answer_review_prepare(reason)
     }
 
+    async fn agent_context_execution_review(&self, payload: Value) -> anyhow::Result<Value> {
+        let reason = payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("approved answer from Codex++ launcher");
+        let answer_text = payload
+            .get("answerText")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        codex_plus_core::agent_context::run_agent_context_execution_review_prepare(
+            reason,
+            answer_text,
+        )
+    }
+
     async fn usage_summary(&self) -> anyhow::Result<Value> {
         codex_plus_core::routes::openusage_summary().await
     }

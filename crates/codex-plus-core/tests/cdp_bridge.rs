@@ -519,12 +519,14 @@ fn injection_script_exposes_agent_context_default_preflight_hook() {
     assert!(script.contains("/agent-context/task-preflight"));
     assert!(script.contains("/agent-context/model-input-review"));
     assert!(script.contains("/agent-context/answer-review"));
+    assert!(script.contains("/agent-context/execution-review"));
     assert!(script.contains("codexAgentContextRequestMethods"));
     assert!(script.contains("codexAgentContextExtractGoal"));
     assert!(script.contains("codexAgentContextRequestOverride"));
     assert!(script.contains("codexAgentContextPreflightHint"));
     assert!(script.contains("codexAgentContextModelInputReviewHint"));
     assert!(script.contains("codexAgentContextAnswerReviewHint"));
+    assert!(script.contains("codexAgentContextExecutionReviewHint"));
     assert!(script.contains("codexAgentContextAppendHint"));
     assert!(script.contains(
         "Do not answer the original task yet. Ask the user to review and approve the normalized prompt before Doctor generates local context."
@@ -608,6 +610,42 @@ fn injection_script_advances_agent_context_to_answer_review() {
 
     assert_eq!(result["answerDiagnosticStatus"], "awaiting_answer_output");
     assert_eq!(result["answerDiagnosticHasAnswerPacket"], true);
+}
+
+#[test]
+fn injection_script_advances_agent_context_to_execution_review() {
+    let result = run_agent_context_injection_harness();
+
+    assert_eq!(
+        result["fourthBridgePath"],
+        "/agent-context/execution-review"
+    );
+    assert_eq!(
+        result["fourthBridgePayload"]["sessionId"],
+        "codex-plus-test"
+    );
+    assert!(
+        result["fourthBridgePayload"]["answerText"]
+            .as_str()
+            .unwrap()
+            .contains("这是模型生成的可审查答案")
+    );
+
+    let input = result["fourthTurnInput"]
+        .as_str()
+        .expect("fourth turn input should be a string");
+    assert!(input.contains("我批准这个答案，进入执行审查"));
+    assert!(input.contains("[Codex++ Auto Context]"));
+    assert!(
+        input.contains("Doctor has recorded and approved the answer; execution review is ready.")
+    );
+    assert!(input.contains("Do not run any local command yet."));
+    assert!(input.contains("Execution report: /tmp/execution_report.md"));
+    assert!(input.contains("Artifact index: /tmp/execution_artifacts.md"));
+
+    assert_eq!(result["executionDiagnosticStatus"], "awaiting_execution");
+    assert_eq!(result["executionDiagnosticHasAnswerText"], true);
+    assert_eq!(result["executionDiagnosticHasExecutionReport"], true);
 }
 
 #[test]
@@ -797,10 +835,14 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
       innerHTML: "",
     }};
   }}
-  globalThis.window = globalThis;
-  window.__CODEX_PLUS_TEST_SERVICE_TIER__ = true;
-  const bridgeCalls = [];
-  window.__codexSessionDeleteBridge = async (path, payload) => {{
+	  globalThis.window = globalThis;
+	  window.__CODEX_PLUS_TEST_SERVICE_TIER__ = true;
+	  const fakeAssistantAnswer = {{
+	    innerText: "这是模型生成的可审查答案。它解释了开源往事如何在番茄爆火，并说明下一步需要本机脚本生成报告。",
+	    textContent: "这是模型生成的可审查答案。它解释了开源往事如何在番茄爆火，并说明下一步需要本机脚本生成报告。",
+	  }};
+	  const bridgeCalls = [];
+	  window.__codexSessionDeleteBridge = async (path, payload) => {{
     bridgeCalls.push({{ path, payload }});
     if (path === "/agent-context/task-preflight") {{
       return {{
@@ -851,6 +893,23 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
         agentPreflightMd: "/tmp/agent_preflight.md",
       }};
     }}
+    if (path === "/agent-context/execution-review") {{
+      return {{
+        status: "awaiting_execution",
+        message: "Doctor has recorded and approved the answer; execution review is ready.",
+        sessionId: "codex-plus-test",
+        safeToSendModel: false,
+        recordedAnswerFile: "/tmp/codex-plus-answer.md",
+        answerMd: "/tmp/answer.md",
+        executionReviewJson: "/tmp/execution_review.json",
+        executionReportMd: "/tmp/execution_report.md",
+        executionArtifactsJsonl: "/tmp/execution_artifacts.jsonl",
+        executionArtifactIndexMd: "/tmp/execution_artifacts.md",
+        artifactsDir: "/tmp/artifacts",
+        reviewFile: "/tmp/execution_report.md",
+        agentPreflightMd: "/tmp/agent_preflight.md",
+      }};
+    }}
     if (path === "/diagnostics/log") return {{ status: "ok" }};
     return {{ status: "failed", message: "unexpected path" }};
   }};
@@ -861,7 +920,7 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
     createElement: () => node(),
     getElementById: () => null,
     querySelector: () => null,
-    querySelectorAll: () => [],
+    querySelectorAll: (selector) => String(selector || "").includes("assistant") ? [fakeAssistantAnswer] : [],
     addEventListener() {{}},
     removeEventListener() {{}},
   }};
@@ -903,28 +962,44 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
       input: "我批准 model_input，用这个上下文回答",
     }},
   }}));
+  const fourthMessage = await Promise.resolve(api.agentContextRequestOverride({{
+    type: "send-cli-request-for-host",
+    method: "turn/start",
+    conversationId: "thread-12345678",
+    params: {{
+      threadId: "thread-12345678",
+      input: "我批准这个答案，进入执行审查",
+    }},
+  }}));
   const diagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_task_preflight");
   const modelInputDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_model_input_review");
   const answerDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_answer_review");
+  const executionDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_execution_review");
   process.stdout.write(JSON.stringify({{
     goal: api.agentContextExtractGoal({{ input: "开源往事如何在番茄爆火，面向的读者是谁" }}),
     bridgePath: bridgeCalls[0]?.path || "",
     bridgePayload: bridgeCalls[0]?.payload || {{}},
     secondBridgePath: bridgeCalls[1]?.path || "",
     secondBridgePayload: bridgeCalls[1]?.payload || {{}},
-	    thirdBridgePath: bridgeCalls[2]?.path || "",
-	    thirdBridgePayload: bridgeCalls[2]?.payload || {{}},
-	    turnInput: message.params.input,
-	    secondTurnInput: secondMessage.params.input,
-	    thirdTurnInput: thirdMessage.params.input,
-	    diagnosticStatus: diagnostic?.detail?.status || "",
-	    diagnosticSourcesIncluded: diagnostic?.detail?.sourcesIncluded || 0,
-	    diagnosticHasReviewFile: diagnostic?.detail?.hasReviewFile || false,
-	    modelInputDiagnosticStatus: modelInputDiagnostic?.detail?.status || "",
-	    modelInputDiagnosticHasModelInput: modelInputDiagnostic?.detail?.hasModelInput || false,
-	    answerDiagnosticStatus: answerDiagnostic?.detail?.status || "",
-	    answerDiagnosticHasAnswerPacket: answerDiagnostic?.detail?.hasAnswerPacket || false,
-	  }}));
+    thirdBridgePath: bridgeCalls[2]?.path || "",
+    thirdBridgePayload: bridgeCalls[2]?.payload || {{}},
+    fourthBridgePath: bridgeCalls[3]?.path || "",
+    fourthBridgePayload: bridgeCalls[3]?.payload || {{}},
+    turnInput: message.params.input,
+    secondTurnInput: secondMessage.params.input,
+    thirdTurnInput: thirdMessage.params.input,
+    fourthTurnInput: fourthMessage.params.input,
+    diagnosticStatus: diagnostic?.detail?.status || "",
+    diagnosticSourcesIncluded: diagnostic?.detail?.sourcesIncluded || 0,
+    diagnosticHasReviewFile: diagnostic?.detail?.hasReviewFile || false,
+    modelInputDiagnosticStatus: modelInputDiagnostic?.detail?.status || "",
+    modelInputDiagnosticHasModelInput: modelInputDiagnostic?.detail?.hasModelInput || false,
+    answerDiagnosticStatus: answerDiagnostic?.detail?.status || "",
+    answerDiagnosticHasAnswerPacket: answerDiagnostic?.detail?.hasAnswerPacket || false,
+    executionDiagnosticStatus: executionDiagnostic?.detail?.status || "",
+    executionDiagnosticHasAnswerText: executionDiagnostic?.detail?.hasAnswerText || false,
+    executionDiagnosticHasExecutionReport: executionDiagnostic?.detail?.hasExecutionReport || false,
+  }}));
 }})().catch((error) => {{
   console.error(error && error.stack ? error.stack : error);
   process.exit(1);
