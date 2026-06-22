@@ -1281,6 +1281,138 @@ pub fn run_agent_context_execution_review_prepare(
     Ok(result)
 }
 
+pub fn run_agent_context_execution_command(
+    command: &str,
+    cwd: &str,
+    reason: &str,
+) -> anyhow::Result<Value> {
+    let command = command.trim();
+    if command.is_empty() {
+        return Ok(json!({
+            "status": "failed",
+            "message": "执行命令不能为空。请使用“执行命令: <command>”明确给出本机命令。"
+        }));
+    }
+    let config = load_agent_context_panel_config()?;
+    let previous = load_agent_context_panel_status().unwrap_or_default();
+    let session_id = previous.last_session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err(anyhow!(
+            "请先进入 Doctor execution review，再执行显式命令。"
+        ));
+    }
+    let reason = if reason.trim().is_empty() {
+        "approved execution command from Codex++ live task flow"
+    } else {
+        reason.trim()
+    };
+    let cwd = cwd.trim();
+    let output = run_execution_review_run_command(
+        &config,
+        &session_id,
+        command,
+        if cwd.is_empty() { None } else { Some(cwd) },
+        120,
+        reason,
+    )?;
+    if !output.status.success() {
+        let message = command_failure_message(&output);
+        save_agent_context_panel_status(&AgentContextPanelStatus {
+            last_status: "failed".to_string(),
+            last_message: message.clone(),
+            last_session_id: previous.last_session_id.clone(),
+            last_goal: previous.last_goal.clone(),
+            last_scope: config.scope.clone(),
+            last_mode: config.mode.clone(),
+            last_generated_at_ms: now_ms(),
+            ..previous
+        })?;
+        return Err(anyhow!(message));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let raw: Value = serde_json::from_str(&stdout)
+        .with_context(|| "failed to parse agent-context execution-review run output")?;
+    let result = execution_review_to_bridge_value(
+        raw,
+        "Doctor ran the approved explicit local command and captured artifacts.",
+    );
+    save_agent_context_panel_status(&AgentContextPanelStatus {
+        last_status: string_at(&result, "/status", "executed"),
+        last_message: string_at(
+            &result,
+            "/message",
+            "Doctor 已执行显式命令并生成 artifacts。",
+        ),
+        last_session_id: previous.last_session_id.clone(),
+        last_goal: previous.last_goal.clone(),
+        last_scope: config.scope.clone(),
+        last_mode: config.mode.clone(),
+        last_generated_at_ms: now_ms(),
+        ..previous
+    })?;
+    Ok(result)
+}
+
+pub fn run_agent_context_execution_review_decision(
+    action: &str,
+    reason: &str,
+) -> anyhow::Result<Value> {
+    let action = action.trim();
+    if action != "approve" && action != "reject" {
+        return Err(anyhow!("execution review action must be approve or reject"));
+    }
+    let config = load_agent_context_panel_config()?;
+    let previous = load_agent_context_panel_status().unwrap_or_default();
+    let session_id = previous.last_session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err(anyhow!(
+            "请先执行或记录 Doctor execution artifact，再批准执行结果。"
+        ));
+    }
+    let reason = if reason.trim().is_empty() {
+        "reviewed execution artifacts from Codex++ live task flow"
+    } else {
+        reason.trim()
+    };
+    let output = run_execution_review_decision_command(&config, &session_id, action, reason)?;
+    if !output.status.success() {
+        let message = command_failure_message(&output);
+        save_agent_context_panel_status(&AgentContextPanelStatus {
+            last_status: "failed".to_string(),
+            last_message: message.clone(),
+            last_session_id: previous.last_session_id.clone(),
+            last_goal: previous.last_goal.clone(),
+            last_scope: config.scope.clone(),
+            last_mode: config.mode.clone(),
+            last_generated_at_ms: now_ms(),
+            ..previous
+        })?;
+        return Err(anyhow!(message));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let raw: Value = serde_json::from_str(&stdout)
+        .with_context(|| "failed to parse agent-context execution-review decision output")?;
+    let default_message = if action == "approve" {
+        "Doctor execution artifacts are approved; the four-stage runtime session is complete."
+    } else {
+        "Doctor execution artifacts were rejected; revise or rerun before completion."
+    };
+    let result = execution_review_to_bridge_value(raw, default_message);
+    save_agent_context_panel_status(&AgentContextPanelStatus {
+        last_status: string_at(&result, "/status", action),
+        last_message: string_at(&result, "/message", default_message),
+        last_session_id: previous.last_session_id.clone(),
+        last_goal: previous.last_goal.clone(),
+        last_scope: config.scope.clone(),
+        last_mode: config.mode.clone(),
+        last_generated_at_ms: now_ms(),
+        ..previous
+    })?;
+    Ok(result)
+}
+
 pub fn run_agent_context_panel(goal: &str) -> anyhow::Result<AgentContextPanelState> {
     let config = load_agent_context_panel_config()?;
     let goal = goal.trim();
@@ -1611,6 +1743,59 @@ fn run_agent_preflight_execution_command(
         .arg(session_id)
         .arg("--advance")
         .arg("execution")
+        .arg("--reason")
+        .arg(reason);
+    command
+        .output()
+        .with_context(|| format!("failed to execute {}", config.agent_context_bin))
+}
+
+fn run_execution_review_run_command(
+    config: &AgentContextPanelConfig,
+    session_id: &str,
+    execution_command: &str,
+    cwd: Option<&str>,
+    timeout_seconds: u64,
+    reason: &str,
+) -> anyhow::Result<std::process::Output> {
+    let mut command = Command::new(&config.agent_context_bin);
+    command
+        .arg("execution-review")
+        .arg("--out")
+        .arg(&config.agent_context_root)
+        .arg("--session-id")
+        .arg(session_id)
+        .arg("--action")
+        .arg("run")
+        .arg("--command")
+        .arg(execution_command)
+        .arg("--timeout-seconds")
+        .arg(timeout_seconds.to_string())
+        .arg("--reason")
+        .arg(reason);
+    if let Some(cwd) = cwd {
+        command.arg("--cwd").arg(cwd);
+    }
+    command
+        .output()
+        .with_context(|| format!("failed to execute {}", config.agent_context_bin))
+}
+
+fn run_execution_review_decision_command(
+    config: &AgentContextPanelConfig,
+    session_id: &str,
+    action: &str,
+    reason: &str,
+) -> anyhow::Result<std::process::Output> {
+    let mut command = Command::new(&config.agent_context_bin);
+    command
+        .arg("execution-review")
+        .arg("--out")
+        .arg(&config.agent_context_root)
+        .arg("--session-id")
+        .arg(session_id)
+        .arg("--action")
+        .arg(action)
         .arg("--reason")
         .arg(reason);
     command
@@ -2320,6 +2505,44 @@ fn execution_preflight_to_bridge_value(raw: Value, recorded_answer_file: PathBuf
         "reviewFile": string_at(&raw, "/review_file", ""),
         "agentPreflightMd": string_at(&raw, "/agent_preflight_md_path", ""),
         "nextCommands": raw.get("next_commands").cloned().unwrap_or_else(|| json!([])),
+    })
+}
+
+fn execution_review_to_bridge_value(raw: Value, default_message: &str) -> Value {
+    let null = Value::Null;
+    let commands = raw
+        .get("commands")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let last_command = commands.last().unwrap_or(&null);
+    let status = string_at(&raw, "/status", "");
+    let execution_report = string_at(&raw, "/execution_report_md_path", "");
+    let artifact_index = string_at(&raw, "/artifact_index_md_path", "");
+    json!({
+        "status": status,
+        "message": default_message,
+        "sessionId": string_at(&raw, "/session_id", ""),
+        "safeToSendModel": false,
+        "complete": status == "approved",
+        "command": string_at(last_command, "/command", ""),
+        "cwd": string_at(last_command, "/cwd", ""),
+        "lastRunId": string_at(&raw, "/last_run_id", ""),
+        "lastReturncode": last_command.get("returncode").cloned().unwrap_or_else(|| raw.get("last_returncode").cloned().unwrap_or(Value::Null)),
+        "lastTimedOut": last_command.get("timed_out").and_then(Value::as_bool).unwrap_or_else(|| raw.get("last_timed_out").and_then(Value::as_bool).unwrap_or(false)),
+        "stdoutPath": string_at(last_command, "/stdout_path", ""),
+        "stderrPath": string_at(last_command, "/stderr_path", ""),
+        "resultJsonPath": string_at(last_command, "/result_json_path", ""),
+        "executionReviewJson": string_at(&raw, "/execution_review_json_path", ""),
+        "executionReportMd": execution_report,
+        "executionArtifactsJsonl": string_at(&raw, "/artifact_manifest_jsonl_path", ""),
+        "executionArtifactIndexMd": artifact_index,
+        "artifactsDir": string_at(&raw, "/artifacts_dir", ""),
+        "reviewFile": execution_report,
+        "artifactCount": raw.get("artifact_count").and_then(Value::as_u64).unwrap_or(0),
+        "commands": raw.get("commands").cloned().unwrap_or_else(|| json!([])),
+        "externalArtifacts": raw.get("external_artifacts").cloned().unwrap_or_else(|| json!([])),
+        "nextCommands": json!([]),
     })
 }
 
@@ -3642,5 +3865,60 @@ mod tests {
             bridge["agentPreflightMd"],
             "/tmp/runtime/agent_preflight.md"
         );
+    }
+
+    #[test]
+    fn execution_review_maps_command_run_bridge_contract() {
+        let bridge = execution_review_to_bridge_value(
+            json!({
+                "status": "executed",
+                "session_id": "runtime-task-test",
+                "last_run_id": "run-test",
+                "last_returncode": 0,
+                "last_timed_out": false,
+                "execution_review_json_path": "/tmp/pack/execution_review.json",
+                "execution_report_md_path": "/tmp/pack/execution_report.md",
+                "artifact_manifest_jsonl_path": "/tmp/pack/execution_artifacts.jsonl",
+                "artifact_index_md_path": "/tmp/pack/execution_artifacts.md",
+                "artifacts_dir": "/tmp/pack/artifacts",
+                "artifact_count": 3,
+                "commands": [{
+                    "run_id": "run-test",
+                    "command": "python -c \"print('runtime artifact')\"",
+                    "cwd": "/tmp",
+                    "returncode": 0,
+                    "timed_out": false,
+                    "stdout_path": "/tmp/pack/artifacts/run-test.stdout.txt",
+                    "stderr_path": "/tmp/pack/artifacts/run-test.stderr.txt",
+                    "result_json_path": "/tmp/pack/artifacts/run-test.json"
+                }]
+            }),
+            "Doctor ran the approved explicit local command and captured artifacts.",
+        );
+
+        assert_eq!(bridge["status"], "executed");
+        assert_eq!(bridge["sessionId"], "runtime-task-test");
+        assert_eq!(bridge["command"], "python -c \"print('runtime artifact')\"");
+        assert_eq!(bridge["lastRunId"], "run-test");
+        assert_eq!(bridge["lastReturncode"], 0);
+        assert_eq!(bridge["lastTimedOut"], false);
+        assert_eq!(
+            bridge["stdoutPath"],
+            "/tmp/pack/artifacts/run-test.stdout.txt"
+        );
+        assert_eq!(
+            bridge["stderrPath"],
+            "/tmp/pack/artifacts/run-test.stderr.txt"
+        );
+        assert_eq!(
+            bridge["resultJsonPath"],
+            "/tmp/pack/artifacts/run-test.json"
+        );
+        assert_eq!(
+            bridge["executionArtifactIndexMd"],
+            "/tmp/pack/execution_artifacts.md"
+        );
+        assert_eq!(bridge["artifactCount"], 3);
+        assert_eq!(bridge["complete"], false);
     }
 }

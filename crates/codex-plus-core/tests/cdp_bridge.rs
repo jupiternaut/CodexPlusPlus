@@ -520,6 +520,8 @@ fn injection_script_exposes_agent_context_default_preflight_hook() {
     assert!(script.contains("/agent-context/model-input-review"));
     assert!(script.contains("/agent-context/answer-review"));
     assert!(script.contains("/agent-context/execution-review"));
+    assert!(script.contains("/agent-context/execution-run"));
+    assert!(script.contains("/agent-context/execution-approve"));
     assert!(script.contains("codexAgentContextRequestMethods"));
     assert!(script.contains("codexAgentContextExtractGoal"));
     assert!(script.contains("codexAgentContextRequestOverride"));
@@ -527,6 +529,8 @@ fn injection_script_exposes_agent_context_default_preflight_hook() {
     assert!(script.contains("codexAgentContextModelInputReviewHint"));
     assert!(script.contains("codexAgentContextAnswerReviewHint"));
     assert!(script.contains("codexAgentContextExecutionReviewHint"));
+    assert!(script.contains("codexAgentContextExecutionRunHint"));
+    assert!(script.contains("codexAgentContextExecutionApproveHint"));
     assert!(script.contains("codexAgentContextAppendHint"));
     assert!(script.contains(
         "Do not answer the original task yet. Ask the user to review and approve the normalized prompt before Doctor generates local context."
@@ -646,6 +650,63 @@ fn injection_script_advances_agent_context_to_execution_review() {
     assert_eq!(result["executionDiagnosticStatus"], "awaiting_execution");
     assert_eq!(result["executionDiagnosticHasAnswerText"], true);
     assert_eq!(result["executionDiagnosticHasExecutionReport"], true);
+}
+
+#[test]
+fn injection_script_runs_agent_context_execution_command() {
+    let result = run_agent_context_injection_harness();
+
+    assert_eq!(result["fifthBridgePath"], "/agent-context/execution-run");
+    assert_eq!(result["fifthBridgePayload"]["sessionId"], "codex-plus-test");
+    assert_eq!(
+        result["fifthBridgePayload"]["command"],
+        "python -c \"print('runtime artifact')\""
+    );
+
+    let input = result["fifthTurnInput"]
+        .as_str()
+        .expect("fifth turn input should be a string");
+    assert!(input.contains("执行命令: python -c"));
+    assert!(input.contains("[Codex++ Auto Context]"));
+    assert!(
+        input.contains("Doctor ran the approved explicit local command and captured artifacts.")
+    );
+    assert!(input.contains("Command: python -c \"print('runtime artifact')\""));
+    assert!(input.contains("Return code: 0"));
+    assert!(input.contains("stdout: /tmp/artifacts/run-test.stdout.txt"));
+    assert!(input.contains("stderr: /tmp/artifacts/run-test.stderr.txt"));
+    assert!(input.contains("result: /tmp/artifacts/run-test.json"));
+    assert!(input.contains("Artifact index: /tmp/execution_artifacts.md"));
+
+    assert_eq!(result["executionRunDiagnosticStatus"], "executed");
+    assert_eq!(result["executionRunDiagnosticReturncode"], 0);
+    assert_eq!(result["executionRunDiagnosticHasResultJson"], true);
+}
+
+#[test]
+fn injection_script_approves_agent_context_execution_artifacts() {
+    let result = run_agent_context_injection_harness();
+
+    assert_eq!(
+        result["sixthBridgePath"],
+        "/agent-context/execution-approve"
+    );
+    assert_eq!(result["sixthBridgePayload"]["sessionId"], "codex-plus-test");
+
+    let input = result["sixthTurnInput"]
+        .as_str()
+        .expect("sixth turn input should be a string");
+    assert!(input.contains("批准执行结果，产物可以接受"));
+    assert!(input.contains("[Codex++ Auto Context]"));
+    assert!(input.contains(
+        "Doctor execution artifacts are approved; the four-stage runtime session is complete."
+    ));
+    assert!(input.contains("Artifact count: 3"));
+    assert!(input.contains("Execution report: /tmp/execution_report.md"));
+    assert!(input.contains("Artifact index: /tmp/execution_artifacts.md"));
+
+    assert_eq!(result["executionApproveDiagnosticStatus"], "approved");
+    assert_eq!(result["executionApproveDiagnosticComplete"], true);
 }
 
 #[test]
@@ -910,6 +971,47 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
         agentPreflightMd: "/tmp/agent_preflight.md",
       }};
     }}
+    if (path === "/agent-context/execution-run") {{
+      return {{
+        status: "executed",
+        message: "Doctor ran the approved explicit local command and captured artifacts.",
+        sessionId: "codex-plus-test",
+        safeToSendModel: false,
+        command: payload.command || "",
+        cwd: "/tmp",
+        lastRunId: "run-test",
+        lastReturncode: 0,
+        lastTimedOut: false,
+        stdoutPath: "/tmp/artifacts/run-test.stdout.txt",
+        stderrPath: "/tmp/artifacts/run-test.stderr.txt",
+        resultJsonPath: "/tmp/artifacts/run-test.json",
+        executionReviewJson: "/tmp/execution_review.json",
+        executionReportMd: "/tmp/execution_report.md",
+        executionArtifactsJsonl: "/tmp/execution_artifacts.jsonl",
+        executionArtifactIndexMd: "/tmp/execution_artifacts.md",
+        artifactsDir: "/tmp/artifacts",
+        artifactCount: 3,
+      }};
+    }}
+    if (path === "/agent-context/execution-approve") {{
+      return {{
+        status: "approved",
+        message: "Doctor execution artifacts are approved; the four-stage runtime session is complete.",
+        sessionId: "codex-plus-test",
+        safeToSendModel: false,
+        complete: true,
+        command: "python -c \"print('runtime artifact')\"",
+        lastRunId: "run-test",
+        lastReturncode: 0,
+        lastTimedOut: false,
+        executionReviewJson: "/tmp/execution_review.json",
+        executionReportMd: "/tmp/execution_report.md",
+        executionArtifactsJsonl: "/tmp/execution_artifacts.jsonl",
+        executionArtifactIndexMd: "/tmp/execution_artifacts.md",
+        artifactsDir: "/tmp/artifacts",
+        artifactCount: 3,
+      }};
+    }}
     if (path === "/diagnostics/log") return {{ status: "ok" }};
     return {{ status: "failed", message: "unexpected path" }};
   }};
@@ -971,10 +1073,30 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
       input: "我批准这个答案，进入执行审查",
     }},
   }}));
+  const fifthMessage = await Promise.resolve(api.agentContextRequestOverride({{
+    type: "send-cli-request-for-host",
+    method: "turn/start",
+    conversationId: "thread-12345678",
+    params: {{
+      threadId: "thread-12345678",
+      input: "执行命令: python -c \"print('runtime artifact')\"",
+    }},
+  }}));
+  const sixthMessage = await Promise.resolve(api.agentContextRequestOverride({{
+    type: "send-cli-request-for-host",
+    method: "turn/start",
+    conversationId: "thread-12345678",
+    params: {{
+      threadId: "thread-12345678",
+      input: "批准执行结果，产物可以接受",
+    }},
+  }}));
   const diagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_task_preflight");
   const modelInputDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_model_input_review");
   const answerDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_answer_review");
   const executionDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_execution_review");
+  const executionRunDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_execution_run");
+  const executionApproveDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_execution_approve");
   process.stdout.write(JSON.stringify({{
     goal: api.agentContextExtractGoal({{ input: "开源往事如何在番茄爆火，面向的读者是谁" }}),
     bridgePath: bridgeCalls[0]?.path || "",
@@ -985,10 +1107,16 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
     thirdBridgePayload: bridgeCalls[2]?.payload || {{}},
     fourthBridgePath: bridgeCalls[3]?.path || "",
     fourthBridgePayload: bridgeCalls[3]?.payload || {{}},
+    fifthBridgePath: bridgeCalls[4]?.path || "",
+    fifthBridgePayload: bridgeCalls[4]?.payload || {{}},
+    sixthBridgePath: bridgeCalls[5]?.path || "",
+    sixthBridgePayload: bridgeCalls[5]?.payload || {{}},
     turnInput: message.params.input,
     secondTurnInput: secondMessage.params.input,
     thirdTurnInput: thirdMessage.params.input,
     fourthTurnInput: fourthMessage.params.input,
+    fifthTurnInput: fifthMessage.params.input,
+    sixthTurnInput: sixthMessage.params.input,
     diagnosticStatus: diagnostic?.detail?.status || "",
     diagnosticSourcesIncluded: diagnostic?.detail?.sourcesIncluded || 0,
     diagnosticHasReviewFile: diagnostic?.detail?.hasReviewFile || false,
@@ -999,6 +1127,11 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
     executionDiagnosticStatus: executionDiagnostic?.detail?.status || "",
     executionDiagnosticHasAnswerText: executionDiagnostic?.detail?.hasAnswerText || false,
     executionDiagnosticHasExecutionReport: executionDiagnostic?.detail?.hasExecutionReport || false,
+    executionRunDiagnosticStatus: executionRunDiagnostic?.detail?.status || "",
+    executionRunDiagnosticReturncode: executionRunDiagnostic?.detail?.returncode,
+    executionRunDiagnosticHasResultJson: executionRunDiagnostic?.detail?.hasResultJson || false,
+    executionApproveDiagnosticStatus: executionApproveDiagnostic?.detail?.status || "",
+    executionApproveDiagnosticComplete: executionApproveDiagnostic?.detail?.complete || false,
   }}));
 }})().catch((error) => {{
   console.error(error && error.stack ? error.stack : error);

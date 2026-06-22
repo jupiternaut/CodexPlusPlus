@@ -83,6 +83,8 @@ pub trait BridgeRuntimeService: Send + Sync {
     async fn agent_context_model_input_review(&self, payload: Value) -> anyhow::Result<Value>;
     async fn agent_context_answer_review(&self, payload: Value) -> anyhow::Result<Value>;
     async fn agent_context_execution_review(&self, payload: Value) -> anyhow::Result<Value>;
+    async fn agent_context_execution_run(&self, payload: Value) -> anyhow::Result<Value>;
+    async fn agent_context_execution_approve(&self, payload: Value) -> anyhow::Result<Value>;
     async fn usage_summary(&self) -> anyhow::Result<Value>;
     async fn cache_telemetry(&self, payload: Value) -> anyhow::Result<Value>;
     async fn ads(&self) -> anyhow::Result<Value>;
@@ -191,6 +193,16 @@ pub async fn handle_bridge_request(
         "/agent-context/execution-review" => {
             ctx.runtime
                 .agent_context_execution_review(payload.clone())
+                .await
+        }
+        "/agent-context/execution-run" => {
+            ctx.runtime
+                .agent_context_execution_run(payload.clone())
+                .await
+        }
+        "/agent-context/execution-approve" => {
+            ctx.runtime
+                .agent_context_execution_approve(payload.clone())
                 .await
         }
         "/usage/summary" => ctx.runtime.usage_summary().await,
@@ -534,6 +546,30 @@ impl BridgeRuntimeService for CoreRuntimeService {
             .and_then(Value::as_str)
             .unwrap_or_default();
         crate::agent_context::run_agent_context_execution_review_prepare(reason, answer_text)
+    }
+
+    async fn agent_context_execution_run(&self, payload: Value) -> anyhow::Result<Value> {
+        let command = payload
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let cwd = payload
+            .get("cwd")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let reason = payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("approved execution command from Codex++ bridge");
+        crate::agent_context::run_agent_context_execution_command(command, cwd, reason)
+    }
+
+    async fn agent_context_execution_approve(&self, payload: Value) -> anyhow::Result<Value> {
+        let reason = payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("approved execution artifacts from Codex++ bridge");
+        crate::agent_context::run_agent_context_execution_review_decision("approve", reason)
     }
 
     async fn usage_summary(&self) -> anyhow::Result<Value> {

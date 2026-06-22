@@ -890,6 +890,29 @@ async fn handle_helper_connection(
             } else {
                 agent_context_execution_review_response(request_body)
             }
+        } else if path == "/agent-context/execution-run" && matches!(method, "POST" | "OPTIONS") {
+            if method == "OPTIONS" {
+                (
+                    "200 OK".to_string(),
+                    Vec::new(),
+                    "application/json; charset=utf-8".to_string(),
+                    "helper.agent_context_execution_run_options",
+                )
+            } else {
+                agent_context_execution_run_response(request_body)
+            }
+        } else if path == "/agent-context/execution-approve" && matches!(method, "POST" | "OPTIONS")
+        {
+            if method == "OPTIONS" {
+                (
+                    "200 OK".to_string(),
+                    Vec::new(),
+                    "application/json; charset=utf-8".to_string(),
+                    "helper.agent_context_execution_approve_options",
+                )
+            } else {
+                agent_context_execution_approve_response(request_body)
+            }
         } else if path == "/usage/summary" && matches!(method, "GET" | "POST" | "OPTIONS") {
             if method == "OPTIONS" {
                 (
@@ -1092,6 +1115,63 @@ fn agent_context_execution_review_response(
         serde_json::to_vec(&body).unwrap_or_default(),
         "application/json; charset=utf-8".to_string(),
         "helper.agent_context_execution_review",
+    )
+}
+
+fn agent_context_execution_run_response(
+    request_body: &str,
+) -> (String, Vec<u8>, String, &'static str) {
+    let payload = serde_json::from_str::<serde_json::Value>(request_body).unwrap_or_default();
+    let command = payload
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let cwd = payload
+        .get("cwd")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let reason = payload
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("approved execution command from Codex++ helper");
+    let body = match crate::agent_context::run_agent_context_execution_command(command, cwd, reason)
+    {
+        Ok(result) => result,
+        Err(error) => serde_json::json!({
+            "status": "failed",
+            "message": error.to_string()
+        }),
+    };
+    (
+        "200 OK".to_string(),
+        serde_json::to_vec(&body).unwrap_or_default(),
+        "application/json; charset=utf-8".to_string(),
+        "helper.agent_context_execution_run",
+    )
+}
+
+fn agent_context_execution_approve_response(
+    request_body: &str,
+) -> (String, Vec<u8>, String, &'static str) {
+    let payload = serde_json::from_str::<serde_json::Value>(request_body).unwrap_or_default();
+    let reason = payload
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("approved execution artifacts from Codex++ helper");
+    let body = match crate::agent_context::run_agent_context_execution_review_decision(
+        "approve", reason,
+    ) {
+        Ok(result) => result,
+        Err(error) => serde_json::json!({
+            "status": "failed",
+            "message": error.to_string()
+        }),
+    };
+    (
+        "200 OK".to_string(),
+        serde_json::to_vec(&body).unwrap_or_default(),
+        "application/json; charset=utf-8".to_string(),
+        "helper.agent_context_execution_approve",
     )
 }
 

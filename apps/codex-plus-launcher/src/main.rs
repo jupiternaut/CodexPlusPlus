@@ -699,6 +699,32 @@ impl BridgeRuntimeService for LauncherRuntimeService {
         )
     }
 
+    async fn agent_context_execution_run(&self, payload: Value) -> anyhow::Result<Value> {
+        let command = payload
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let cwd = payload
+            .get("cwd")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let reason = payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("approved execution command from Codex++ launcher");
+        codex_plus_core::agent_context::run_agent_context_execution_command(command, cwd, reason)
+    }
+
+    async fn agent_context_execution_approve(&self, payload: Value) -> anyhow::Result<Value> {
+        let reason = payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("approved execution artifacts from Codex++ launcher");
+        codex_plus_core::agent_context::run_agent_context_execution_review_decision(
+            "approve", reason,
+        )
+    }
+
     async fn usage_summary(&self) -> anyhow::Result<Value> {
         codex_plus_core::routes::openusage_summary().await
     }

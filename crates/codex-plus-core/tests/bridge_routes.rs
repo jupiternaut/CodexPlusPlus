@@ -48,6 +48,14 @@ async fn bridge_routes_cover_all_current_paths() {
             "/agent-context/execution-review",
             json!({"reason": "approved answer from test", "answerText": "Recorded answer"}),
         ),
+        (
+            "/agent-context/execution-run",
+            json!({"command": "python -c \"print('runtime artifact')\"", "reason": "run from test"}),
+        ),
+        (
+            "/agent-context/execution-approve",
+            json!({"reason": "artifacts acceptable from test"}),
+        ),
         ("/usage/summary", json!({})),
         ("/cache/recent", json!({"limit": 12})),
         ("/ads", json!({})),
@@ -1202,6 +1210,51 @@ impl BridgeRuntimeService for FakeRuntime {
             "artifactsDir": "/tmp/artifacts",
             "reviewFile": "/tmp/execution_report.md",
             "agentPreflightMd": "/tmp/agent_preflight.md",
+            "nextCommands": []
+        }))
+    }
+
+    async fn agent_context_execution_run(&self, payload: Value) -> anyhow::Result<Value> {
+        Ok(json!({
+            "status": "executed",
+            "message": "Doctor ran the approved explicit local command and captured artifacts.",
+            "sessionId": "runtime-task-test",
+            "safeToSendModel": false,
+            "command": payload.get("command").and_then(Value::as_str).unwrap_or_default(),
+            "cwd": "/tmp",
+            "lastRunId": "run-test",
+            "lastReturncode": 0,
+            "lastTimedOut": false,
+            "stdoutPath": "/tmp/artifacts/run-test.stdout.txt",
+            "stderrPath": "/tmp/artifacts/run-test.stderr.txt",
+            "resultJsonPath": "/tmp/artifacts/run-test.json",
+            "executionReviewJson": "/tmp/execution_review.json",
+            "executionReportMd": "/tmp/execution_report.md",
+            "executionArtifactsJsonl": "/tmp/execution_artifacts.jsonl",
+            "executionArtifactIndexMd": "/tmp/execution_artifacts.md",
+            "artifactsDir": "/tmp/artifacts",
+            "artifactCount": 3,
+            "nextCommands": []
+        }))
+    }
+
+    async fn agent_context_execution_approve(&self, _payload: Value) -> anyhow::Result<Value> {
+        Ok(json!({
+            "status": "approved",
+            "message": "Doctor execution artifacts are approved; the four-stage runtime session is complete.",
+            "sessionId": "runtime-task-test",
+            "safeToSendModel": false,
+            "complete": true,
+            "command": "python -c \"print('runtime artifact')\"",
+            "lastRunId": "run-test",
+            "lastReturncode": 0,
+            "lastTimedOut": false,
+            "executionReviewJson": "/tmp/execution_review.json",
+            "executionReportMd": "/tmp/execution_report.md",
+            "executionArtifactsJsonl": "/tmp/execution_artifacts.jsonl",
+            "executionArtifactIndexMd": "/tmp/execution_artifacts.md",
+            "artifactsDir": "/tmp/artifacts",
+            "artifactCount": 3,
             "nextCommands": []
         }))
     }
