@@ -80,7 +80,9 @@ pub trait BridgeRuntimeService: Send + Sync {
     async fn repair_backend(&self) -> anyhow::Result<Value>;
     async fn codex_model_catalog(&self) -> anyhow::Result<Value>;
     async fn agent_context_task_preflight(&self, payload: Value) -> anyhow::Result<Value>;
+    async fn agent_context_model_input_review(&self, payload: Value) -> anyhow::Result<Value>;
     async fn usage_summary(&self) -> anyhow::Result<Value>;
+    async fn cache_telemetry(&self, payload: Value) -> anyhow::Result<Value>;
     async fn ads(&self) -> anyhow::Result<Value>;
     async fn zed_remote_status(&self) -> anyhow::Result<Value>;
     async fn resolve_zed_remote_host(&self, payload: Value) -> anyhow::Result<Value>;
@@ -174,7 +176,13 @@ pub async fn handle_bridge_request(
                 .agent_context_task_preflight(payload.clone())
                 .await
         }
+        "/agent-context/model-input-review" => {
+            ctx.runtime
+                .agent_context_model_input_review(payload.clone())
+                .await
+        }
         "/usage/summary" => ctx.runtime.usage_summary().await,
+        "/cache/recent" => ctx.runtime.cache_telemetry(payload.clone()).await,
         "/diagnostics/log" => diagnostic_log_value(payload.clone()),
         "/ads" => ctx.runtime.ads().await,
         "/zed-remote/status" => ctx.runtime.zed_remote_status().await,
@@ -491,8 +499,18 @@ impl BridgeRuntimeService for CoreRuntimeService {
         serde_json::to_value(preflight).map_err(Into::into)
     }
 
+    async fn agent_context_model_input_review(&self, _payload: Value) -> anyhow::Result<Value> {
+        let preflight = crate::agent_context::run_agent_context_model_input_review()?;
+        serde_json::to_value(preflight).map_err(Into::into)
+    }
+
     async fn usage_summary(&self) -> anyhow::Result<Value> {
         openusage_summary().await
+    }
+
+    async fn cache_telemetry(&self, payload: Value) -> anyhow::Result<Value> {
+        let limit = payload.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+        Ok(crate::cache_telemetry::cache_telemetry_summary(limit))
     }
 
     async fn ads(&self) -> anyhow::Result<Value> {

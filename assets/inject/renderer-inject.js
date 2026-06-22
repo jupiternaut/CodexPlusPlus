@@ -712,7 +712,8 @@
           linear-gradient(180deg, rgba(255,255,255,.46), transparent 30%),
           radial-gradient(circle at 10% 100%, rgba(255,255,255,.22), transparent 36%);
       }
-      .codex-plus-modal-content[data-codex-plus-active-tab="usage"] { width: min(620px, calc(100vw - 40px)); }
+      .codex-plus-modal-content[data-codex-plus-active-tab="usage"],
+      .codex-plus-modal-content[data-codex-plus-active-tab="cache"] { width: min(620px, calc(100vw - 40px)); }
       .codex-plus-modal-header {
         display: flex;
         align-items: center;
@@ -2346,6 +2347,8 @@
 
   let codexPlusUsageSummary = { status: "idle", providers: [] };
   let codexPlusUsageLoading = false;
+  let codexPlusCacheSummary = { status: "idle", records: [], totals: {} };
+  let codexPlusCacheLoading = false;
 
   function usagePercent(value) {
     const number = Number(value);
@@ -2499,6 +2502,102 @@
     }
   }
 
+  function cacheTelemetryNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return "0";
+    if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(1)}M`;
+    if (number >= 1_000) return `${(number / 1_000).toFixed(1)}K`;
+    return String(Math.round(number));
+  }
+
+  function cacheTelemetryPercent(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return "0%";
+    return `${Math.min(100, Math.max(0, number * 100)).toFixed(1)}%`;
+  }
+
+  function cacheTelemetryTime(timestampMs) {
+    const number = Number(timestampMs);
+    if (!Number.isFinite(number) || number <= 0) return "";
+    return new Date(number).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function renderCodexCacheRecords(records) {
+    if (!records.length) return `<div class="codex-plus-usage-note">暂无请求记录。通过 Codex-- 本地 relay/proxy 发送一次问题后，这里会显示 OpenAI cached_tokens 与 Helicone-Cache 状态。</div>`;
+    return records.slice(0, 12).map((record) => {
+      const cacheLabel = record.heliconeCache ? `Helicone ${record.heliconeCache}` : "Provider usage";
+      const model = record.model || record.protocol || "request";
+      return `
+        <div class="codex-plus-usage-metric">
+          <div class="codex-plus-usage-metric-label">${escapeHtml(cacheTelemetryTime(record.timestampMs))} · ${escapeHtml(cacheLabel)}</div>
+          <div class="codex-plus-usage-metric-value">${escapeHtml(cacheTelemetryPercent(record.cacheHitRate))} hit</div>
+          <div class="codex-plus-usage-note">${escapeHtml(model)} · cached ${escapeHtml(cacheTelemetryNumber(record.cachedTokens))} / input ${escapeHtml(cacheTelemetryNumber(record.inputTokens))}${record.cacheCreationTokens ? ` · write ${escapeHtml(cacheTelemetryNumber(record.cacheCreationTokens))}` : ""}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderCodexCachePanel() {
+    if (codexPlusCacheLoading) {
+      return `<div class="codex-plus-usage-empty">正在读取 KV cache 请求记录…</div>`;
+    }
+    if (codexPlusCacheSummary?.status === "failed") {
+      return `
+        <div class="codex-plus-usage-empty">
+          <div>KV cache 遥测暂不可用：${escapeHtml(codexPlusCacheSummary.message || "unknown error")}</div>
+          <div class="codex-plus-usage-note">请确认 Codex-- launcher 后端正在运行。</div>
+        </div>
+      `;
+    }
+    const records = Array.isArray(codexPlusCacheSummary?.records) ? codexPlusCacheSummary.records : [];
+    const totals = codexPlusCacheSummary?.totals || {};
+    return `
+      <div class="codex-plus-usage-card">
+        <div class="codex-plus-usage-header">
+          <div>
+            <div class="codex-plus-usage-title">KV Cache</div>
+            <div class="codex-plus-usage-subtitle">${escapeHtml(codexPlusCacheSummary.source || "local-proxy")} · ${escapeHtml(codexPlusCacheSummary.path || "")}</div>
+          </div>
+          <div class="codex-plus-usage-plan">${escapeHtml(cacheTelemetryPercent(totals.cacheHitRate))}</div>
+        </div>
+        <div class="codex-plus-usage-metrics">
+          <div class="codex-plus-usage-metric"><div class="codex-plus-usage-metric-label">Requests</div><div class="codex-plus-usage-metric-value">${escapeHtml(cacheTelemetryNumber(totals.requestCount))}</div></div>
+          <div class="codex-plus-usage-metric"><div class="codex-plus-usage-metric-label">Cached tokens</div><div class="codex-plus-usage-metric-value">${escapeHtml(cacheTelemetryNumber(totals.cachedTokens))}</div></div>
+          <div class="codex-plus-usage-metric"><div class="codex-plus-usage-metric-label">Input tokens</div><div class="codex-plus-usage-metric-value">${escapeHtml(cacheTelemetryNumber(totals.inputTokens))}</div></div>
+          <div class="codex-plus-usage-metric"><div class="codex-plus-usage-metric-label">Cache writes</div><div class="codex-plus-usage-metric-value">${escapeHtml(cacheTelemetryNumber(totals.cacheCreationTokens))}</div></div>
+        </div>
+        <div class="codex-plus-usage-section">${renderCodexCacheRecords(records)}</div>
+        <div class="codex-plus-usage-note">不保存 prompt/response 正文。OpenAI 命中来自 usage.cached_tokens；Helicone HIT/MISS 来自响应头。</div>
+      </div>
+    `;
+  }
+
+  function updateCodexCachePanel() {
+    const panel = document.querySelector("[data-codex-plus-cache-content]");
+    if (panel) panel.innerHTML = renderCodexCachePanel();
+  }
+
+  async function loadCodexCacheSummary(force = false) {
+    if (codexPlusCacheLoading) return;
+    if (!force && codexPlusCacheSummary?.status === "ok") {
+      updateCodexCachePanel();
+      return;
+    }
+    codexPlusCacheLoading = true;
+    updateCodexCachePanel();
+    try {
+      const result = await postJson("/cache/recent", { limit: 50 });
+      codexPlusCacheSummary = result && typeof result === "object"
+        ? result
+        : { status: "failed", message: "invalid cache response", records: [], totals: {} };
+    } catch (error) {
+      codexPlusCacheSummary = { status: "failed", message: error?.message || String(error), records: [], totals: {} };
+    } finally {
+      codexPlusCacheLoading = false;
+      updateCodexCachePanel();
+    }
+  }
+
   const codexPlusAdsUrl = "/ads";
   let codexPlusAds = [];
   let codexPlusAdsLoaded = false;
@@ -2610,6 +2709,7 @@
     });
     if (tab === "userScripts") loadUserScripts();
     if (tab === "usage") loadCodexUsageSummary();
+    if (tab === "cache") loadCodexCacheSummary();
   }
 
   function openCodexPlusModal() {
@@ -2626,6 +2726,7 @@
         <div class="codex-plus-tabs" role="tablist" aria-label="Codex++">
           <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="home" data-active="true">主页</button>
           <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="usage" data-active="false">Usage</button>
+          <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="cache" data-active="false">KV Cache</button>
           <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="userScripts" data-active="false">用户脚本</button>
           <button type="button" class="codex-plus-tab-button" data-codex-plus-tab="sponsor" data-active="false">推荐内容</button>
         </div>
@@ -2779,6 +2880,16 @@
             </div>
             <div data-codex-plus-usage-content="true">${renderCodexUsagePanel()}</div>
           </div>
+          <div class="codex-plus-panel" data-codex-plus-panel="cache" hidden>
+            <div class="codex-plus-usage-header">
+              <div>
+                <div class="codex-plus-row-title">KV Cache</div>
+                <div class="codex-plus-row-description">显示每次经 Codex-- relay/proxy 的 cached_tokens 与 Helicone HIT/MISS。</div>
+              </div>
+              <button type="button" class="codex-plus-usage-refresh" data-codex-cache-refresh="true">Refresh</button>
+            </div>
+            <div data-codex-plus-cache-content="true">${renderCodexCachePanel()}</div>
+          </div>
           <div class="codex-plus-panel" data-codex-plus-panel="sponsor" hidden>
             <div class="codex-plus-sponsor-text">推荐内容分为赞助商推荐和普通推荐。赞助商推荐来自支持 Codex++ 继续维护的合作方；普通推荐用于展示适合 Codex 用户的服务与信息。</div>
             <div class="codex-plus-ad-remote">
@@ -2841,6 +2952,10 @@
       }
       if (target?.closest("[data-codex-usage-refresh]")) {
         loadCodexUsageSummary(true);
+        return;
+      }
+      if (target?.closest("[data-codex-cache-refresh]")) {
+        loadCodexCacheSummary(true);
         return;
       }
       const issueButton = target?.closest("[data-codex-plus-issue]");
@@ -4386,7 +4501,8 @@
   }
 
   async function postJson(path, payload) {
-    const canUseHttpHelper = path === "/backend/status" || path === "/backend/repair" || path === "/agent-context/task-preflight" || path === "/usage/summary";
+    const isAgentContextLongTask = path === "/agent-context/task-preflight" || path === "/agent-context/model-input-review";
+    const canUseHttpHelper = path === "/backend/status" || path === "/backend/repair" || isAgentContextLongTask || path === "/usage/summary" || path === "/cache/recent";
     if (!window.__codexSessionDeleteBridge) {
       if (canUseHttpHelper) {
         try {
@@ -4404,7 +4520,7 @@
       return { status: "failed", message: "桥接不可用，请重启启动器" };
     }
     function bridgeWithBackendTimeout(path, payload) {
-      const timeoutMs = path === "/agent-context/task-preflight" ? 30000 : path === "/usage/summary" ? 4000 : 2000;
+      const timeoutMs = isAgentContextLongTask ? 30000 : path === "/usage/summary" || path === "/cache/recent" ? 4000 : 2000;
       let timeoutId = null;
       return Promise.race([
         Promise.resolve(window.__codexSessionDeleteBridge(path, payload)).finally(() => {
@@ -4430,7 +4546,7 @@
     try {
       if (canUseHttpHelper) {
         const result = await bridgeWithBackendTimeout(path, payload);
-        if (path === "/agent-context/task-preflight" && result && typeof result.status === "string") return result;
+        if (isAgentContextLongTask && result && typeof result.status === "string") return result;
         if (result?.status === "ok") return result;
         if (result?.timeout) sendCodexPlusDiagnostic("backend_bridge_timeout", { path });
         const fallback = await fetchBackendStatusFromHelper(path, payload);
@@ -4458,7 +4574,7 @@
       });
       if (canUseHttpHelper) {
         const fallback = await fetchBackendStatusFromHelper(path, payload);
-        if (path === "/agent-context/task-preflight" && fallback && typeof fallback.status === "string") return fallback;
+        if (isAgentContextLongTask && fallback && typeof fallback.status === "string") return fallback;
         if (fallback?.status === "ok") {
           sendCodexPlusDiagnostic("backend_status_bridge_failed_http_fallback_ok", {
             path,

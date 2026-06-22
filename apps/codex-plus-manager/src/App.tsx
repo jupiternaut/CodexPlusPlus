@@ -370,6 +370,7 @@ type AgentContextPanelConfig = {
 type AgentContextPanelStatus = {
   lastStatus: string;
   lastMessage: string;
+  lastSessionId: string;
   lastGoal: string;
   lastScope: string;
   lastMode: string;
@@ -378,6 +379,7 @@ type AgentContextPanelStatus = {
   lastManifestJson: string;
   lastResolutionPlanJson: string;
   lastCodexPreflightMd: string;
+  lastModelInputMd: string;
   lastRuntimeTaskMd: string;
   lastReviewFile: string;
   lastReviewClientHtml: string;
@@ -399,6 +401,7 @@ type AgentContextTaskPreflight = {
   mode: AgentContextMode | string;
   sourcesIncluded: number;
   codexPreflightMd: string;
+  modelInputMd: string;
   contextMd: string;
   sourcesJsonl: string;
   manifestJson: string;
@@ -845,6 +848,7 @@ const defaultAgentContextPanelConfig: AgentContextPanelConfig = {
 const defaultAgentContextPanelStatus: AgentContextPanelStatus = {
   lastStatus: "not_checked",
   lastMessage: "",
+  lastSessionId: "",
   lastGoal: "",
   lastScope: "",
   lastMode: "",
@@ -853,6 +857,7 @@ const defaultAgentContextPanelStatus: AgentContextPanelStatus = {
   lastManifestJson: "",
   lastResolutionPlanJson: "",
   lastCodexPreflightMd: "",
+  lastModelInputMd: "",
   lastRuntimeTaskMd: "",
   lastReviewFile: "",
   lastReviewClientHtml: "",
@@ -1265,6 +1270,15 @@ export function App() {
     const result = await run(() => call<CommandResult<AgentContextTaskPreflight>>("run_agent_context_task_preflight", { request: { goal } }));
     if (result) {
       showResultNotice("自动上下文预检", result);
+      await refreshAgentContextPanel(true);
+    }
+    return result;
+  };
+
+  const runAgentContextModelInputReview = async () => {
+    const result = await run(() => call<CommandResult<AgentContextTaskPreflight>>("run_agent_context_model_input_review"));
+    if (result) {
+      showResultNotice("模型输入审查", result);
       await refreshAgentContextPanel(true);
     }
     return result;
@@ -1975,6 +1989,7 @@ export function App() {
       grantAgentContextAccessConsent,
       runAgentContextPanel,
       runAgentContextTaskPreflight,
+      runAgentContextModelInputReview,
       runAgentContextV1Followup,
       openAgentContextFile,
       recordAgentContextFeedback,
@@ -2201,6 +2216,7 @@ type Actions = {
   grantAgentContextAccessConsent: (identifier: string, reason: string) => Promise<CommandResult<AgentContextAccessConsentState> | null>;
   runAgentContextPanel: (goal: string) => Promise<AgentContextPanelResult | null>;
   runAgentContextTaskPreflight: (goal: string) => Promise<CommandResult<AgentContextTaskPreflight> | null>;
+  runAgentContextModelInputReview: () => Promise<CommandResult<AgentContextTaskPreflight> | null>;
   runAgentContextV1Followup: () => Promise<AgentContextV1FollowupResult | null>;
   openAgentContextFile: (path: string) => Promise<void>;
   recordAgentContextFeedback: (winner: string, reason: string) => Promise<void>;
@@ -3627,6 +3643,7 @@ function AgentContextScreen({
   const recentAuditEvents = accessAudit.recentEvents.slice(-5).reverse();
   const hasPack = status.lastGeneratedPack.trim().length > 0;
   const canRun = goal.trim().length > 0;
+  const canGenerateModelInput = status.lastSessionId.trim().length > 0;
   const v1AcceptanceEvidenceGateAt = v1Acceptance.nextEvidenceGateAt || v1Acceptance.nextGateAt;
   const v1AcceptanceEvidenceGateReason = v1Acceptance.nextEvidenceGateReason || v1Acceptance.waitReason;
   const v1AcceptanceSecondsUntilEvidenceGate =
@@ -3798,6 +3815,10 @@ function AgentContextScreen({
                 <FileCode2 className="h-4 w-4" />
                 任务预检
               </Button>
+              <Button disabled={!canGenerateModelInput} onClick={() => void actions.runAgentContextModelInputReview()} variant="outline">
+                <FileCode2 className="h-4 w-4" />
+                生成模型输入审查
+              </Button>
             </Toolbar>
           </div>
 
@@ -3954,6 +3975,7 @@ function AgentContextScreen({
             <AgentContextFileRow label="review client" path={status.lastReviewClientHtml} onOpen={actions.openAgentContextFile} />
             <AgentContextFileRow label="review_launch.md" path={status.lastReviewLaunchMd} onOpen={actions.openAgentContextFile} />
             <AgentContextFileRow label="codex_preflight.md" path={status.lastCodexPreflightMd} onOpen={actions.openAgentContextFile} />
+            <AgentContextFileRow label="model_input.md" path={status.lastModelInputMd} onOpen={actions.openAgentContextFile} />
             <AgentContextFileRow label="context.md" path={status.lastGeneratedPack} onOpen={actions.openAgentContextFile} />
             <AgentContextFileRow label="sources.jsonl" path={status.lastSourcesJsonl} onOpen={actions.openAgentContextFile} />
             <AgentContextFileRow label="manifest.json" path={status.lastManifestJson} onOpen={actions.openAgentContextFile} />

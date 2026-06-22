@@ -854,6 +854,19 @@ async fn handle_helper_connection(
             } else {
                 agent_context_task_preflight_response(request_body)
             }
+        } else if path == "/agent-context/model-input-review"
+            && matches!(method, "POST" | "OPTIONS")
+        {
+            if method == "OPTIONS" {
+                (
+                    "200 OK".to_string(),
+                    Vec::new(),
+                    "application/json; charset=utf-8".to_string(),
+                    "helper.agent_context_model_input_review_options",
+                )
+            } else {
+                agent_context_model_input_review_response()
+            }
         } else if path == "/usage/summary" && matches!(method, "GET" | "POST" | "OPTIONS") {
             if method == "OPTIONS" {
                 (
@@ -881,6 +894,24 @@ async fn handle_helper_connection(
                         "helper.usage_summary_failed",
                     ),
                 }
+            }
+        } else if path == "/cache/recent" && matches!(method, "GET" | "POST" | "OPTIONS") {
+            if method == "OPTIONS" {
+                (
+                    "200 OK".to_string(),
+                    Vec::new(),
+                    "application/json; charset=utf-8".to_string(),
+                    "helper.cache_recent_options",
+                )
+            } else {
+                let payload = serde_json::from_str::<Value>(request_body).unwrap_or_default();
+                let limit = payload.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+                (
+                    "200 OK".to_string(),
+                    serde_json::to_vec(&crate::cache_telemetry::cache_telemetry_summary(limit))?,
+                    "application/json; charset=utf-8".to_string(),
+                    "helper.cache_recent_ok",
+                )
             }
         } else if path == "/overlay/image" && matches!(method, "GET" | "OPTIONS") {
             if method == "OPTIONS" {
@@ -965,6 +996,27 @@ fn agent_context_task_preflight_response(
         serde_json::to_vec(&body).unwrap_or_default(),
         "application/json; charset=utf-8".to_string(),
         "helper.agent_context_task_preflight",
+    )
+}
+
+fn agent_context_model_input_review_response() -> (String, Vec<u8>, String, &'static str) {
+    let body = match crate::agent_context::run_agent_context_model_input_review() {
+        Ok(preflight) => serde_json::to_value(preflight).unwrap_or_else(|error| {
+            serde_json::json!({
+                "status": "failed",
+                "message": error.to_string()
+            })
+        }),
+        Err(error) => serde_json::json!({
+            "status": "failed",
+            "message": error.to_string()
+        }),
+    };
+    (
+        "200 OK".to_string(),
+        serde_json::to_vec(&body).unwrap_or_default(),
+        "application/json; charset=utf-8".to_string(),
+        "helper.agent_context_model_input_review",
     )
 }
 
@@ -1120,6 +1172,8 @@ async fn handle_protocol_proxy_connection(
             return Ok(());
         }
     };
+    let upstream_headers = upstream.response.headers().clone();
+    let upstream_status_code = upstream.status_code;
 
     if !upstream.is_success() {
         let status = upstream.status();
@@ -1179,6 +1233,15 @@ async fn handle_protocol_proxy_connection(
             if !tail.is_empty() {
                 stream.write_all(&tail).await?;
             }
+            if let Some(usage) = converter.latest_usage_with_model() {
+                record_proxy_cache_telemetry(
+                    "responses-proxy",
+                    upstream_status_code,
+                    true,
+                    Some(&usage),
+                    Some(&upstream_headers),
+                );
+            }
         }
         log_helper_response(
             "helper.protocol_proxy_stream_ok",
@@ -1198,6 +1261,13 @@ async fn handle_protocol_proxy_connection(
     } else {
         crate::protocol_proxy::chat_completion_to_response(chat_json)?
     };
+    record_proxy_cache_telemetry(
+        "responses-proxy",
+        upstream_status_code,
+        false,
+        response_json.get("usage"),
+        Some(&upstream_headers),
+    );
     let body = serde_json::to_vec(&response_json)?;
     write_http_response(stream, "200 OK", "application/json; charset=utf-8", &body).await?;
     log_helper_response(
@@ -1209,6 +1279,23 @@ async fn handle_protocol_proxy_connection(
     );
     stream.shutdown().await?;
     Ok(())
+}
+
+fn record_proxy_cache_telemetry(
+    protocol: &str,
+    status_code: u16,
+    stream: bool,
+    usage: Option<&Value>,
+    headers: Option<&reqwest::header::HeaderMap>,
+) {
+    let record =
+        crate::cache_telemetry::record_from_usage(protocol, status_code, stream, usage, headers);
+    if let Err(error) = crate::cache_telemetry::record_cache_telemetry(record) {
+        let _ = crate::diagnostic_log::append_diagnostic_log(
+            "cache_telemetry.write_failed",
+            serde_json::json!({ "message": error.to_string() }),
+        );
+    }
 }
 
 async fn handle_chat_completions_proxy_connection(
@@ -1244,6 +1331,8 @@ async fn handle_chat_completions_proxy_connection(
                 return Ok(());
             }
         };
+    let upstream_headers = upstream.response.headers().clone();
+    let upstream_status_code = upstream.status_code;
 
     let status = upstream.status();
     let is_success = upstream.is_success();
@@ -1271,6 +1360,24 @@ async fn handle_chat_completions_proxy_connection(
     }
 
     let body = upstream.response.bytes().await?.to_vec();
+    if is_success {
+        if let Ok(response_json) = serde_json::from_slice::<Value>(&body) {
+            let usage = response_json.get("usage").cloned().map(|usage| {
+                let model = response_json
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                crate::cache_telemetry::attach_model_to_usage(usage, model)
+            });
+            record_proxy_cache_telemetry(
+                "chat-completions-proxy",
+                upstream_status_code,
+                false,
+                usage.as_ref(),
+                Some(&upstream_headers),
+            );
+        }
+    }
     write_http_response(stream, &status, &content_type, &body).await?;
     log_helper_response(
         if is_success {

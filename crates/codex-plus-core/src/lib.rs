@@ -3,6 +3,7 @@ pub mod agent_context;
 pub mod app_paths;
 pub mod assets;
 pub mod bridge;
+pub mod cache_telemetry;
 pub mod cdp;
 pub mod cli_wrapper;
 pub mod codex_sqlite;

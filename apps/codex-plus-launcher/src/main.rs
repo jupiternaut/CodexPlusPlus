@@ -675,6 +675,13 @@ impl BridgeRuntimeService for LauncherRuntimeService {
         codex_plus_core::routes::openusage_summary().await
     }
 
+    async fn cache_telemetry(&self, payload: Value) -> anyhow::Result<Value> {
+        let limit = payload.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+        Ok(codex_plus_core::cache_telemetry::cache_telemetry_summary(
+            limit,
+        ))
+    }
+
     async fn ads(&self) -> anyhow::Result<Value> {
         codex_plus_core::ads::fetch_ad_list().await
     }

@@ -43,6 +43,7 @@ pub fn run() {
             commands::grant_agent_context_access_consent,
             commands::run_agent_context_panel,
             commands::run_agent_context_task_preflight,
+            commands::run_agent_context_model_input_review,
             commands::run_agent_context_v1_followup,
             commands::record_agent_context_feedback,
             commands::open_agent_context_file,

@@ -39,7 +39,9 @@ async fn bridge_routes_cover_all_current_paths() {
             "/agent-context/task-preflight",
             json!({"goal": "研究本地推荐系统"}),
         ),
+        ("/agent-context/model-input-review", json!({})),
         ("/usage/summary", json!({})),
+        ("/cache/recent", json!({"limit": 12})),
         ("/ads", json!({})),
         ("/zed-remote/status", json!({})),
         (
@@ -1132,6 +1134,33 @@ impl BridgeRuntimeService for FakeRuntime {
         }))
     }
 
+    async fn agent_context_model_input_review(&self, _payload: Value) -> anyhow::Result<Value> {
+        Ok(json!({
+            "status": "awaiting_context_review",
+            "message": "Doctor 已生成 model_input.md，请审查后再发给模型。",
+            "goal": "研究本地推荐系统",
+            "scope": "all",
+            "mode": "fast",
+            "sourcesIncluded": 8,
+            "codexPreflightMd": "/tmp/agent_preflight.md",
+            "modelInputMd": "/tmp/model_input.md",
+            "contextMd": "/tmp/context.md",
+            "sourcesJsonl": "/tmp/sources.jsonl",
+            "manifestJson": "",
+            "resolutionPlanJson": "",
+            "sessionId": "runtime-task-test",
+            "runtimeTaskMd": "/tmp/runtime_task.md",
+            "runtimeTaskJson": "/tmp/runtime_task.json",
+            "reviewFile": "/tmp/model_input.md",
+            "agentPreflightMd": "/tmp/agent_preflight.md",
+            "reviewLaunchMd": "/tmp/review_launch.md",
+            "reviewClientHtml": "/tmp/doctor-runtime-review-client.html",
+            "reviewServerUrl": "",
+            "startServerCommand": "",
+            "openClientCommand": ""
+        }))
+    }
+
     async fn usage_summary(&self) -> anyhow::Result<Value> {
         Ok(json!({
             "status": "ok",
@@ -1151,6 +1180,23 @@ impl BridgeRuntimeService for FakeRuntime {
                 }],
                 "charts": []
             }]
+        }))
+    }
+
+    async fn cache_telemetry(&self, payload: Value) -> anyhow::Result<Value> {
+        Ok(json!({
+            "status": "ok",
+            "source": "local-proxy",
+            "limit": payload.get("limit").and_then(Value::as_u64).unwrap_or(50),
+            "records": [],
+            "totals": {
+                "requestCount": 0,
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cachedTokens": 0,
+                "cacheCreationTokens": 0,
+                "cacheHitRate": 0.0
+            }
         }))
     }
 

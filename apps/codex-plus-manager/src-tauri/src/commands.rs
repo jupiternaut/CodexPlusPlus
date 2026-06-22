@@ -602,6 +602,21 @@ pub fn run_agent_context_task_preflight(
 }
 
 #[tauri::command]
+pub fn run_agent_context_model_input_review() -> CommandResult<AgentContextTaskPreflight> {
+    match codex_plus_core::agent_context::run_agent_context_model_input_review() {
+        Ok(payload) => ok("Agent Context model_input.md 已生成，等待审查。", payload),
+        Err(error) => failed(
+            &format!("Agent Context model_input.md 生成失败：{error}"),
+            codex_plus_core::agent_context::AgentContextTaskPreflight {
+                status: "failed".to_string(),
+                message: error.to_string(),
+                ..codex_plus_core::agent_context::AgentContextTaskPreflight::default()
+            },
+        ),
+    }
+}
+
+#[tauri::command]
 pub fn run_agent_context_v1_followup() -> CommandResult<AgentContextV1FollowupResult> {
     match codex_plus_core::agent_context::run_agent_context_v1_followup() {
         Ok(payload) => ok("Agent Context v1 follow-up gate 已执行。", payload),

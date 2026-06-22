@@ -43,6 +43,8 @@ pub struct AgentContextPanelStatus {
     #[serde(default)]
     pub last_message: String,
     #[serde(default)]
+    pub last_session_id: String,
+    #[serde(default)]
     pub last_goal: String,
     #[serde(default)]
     pub last_scope: String,
@@ -58,6 +60,8 @@ pub struct AgentContextPanelStatus {
     pub last_resolution_plan_json: String,
     #[serde(default)]
     pub last_codex_preflight_md: String,
+    #[serde(default)]
+    pub last_model_input_md: String,
     #[serde(default)]
     pub last_runtime_task_md: String,
     #[serde(default)]
@@ -87,6 +91,7 @@ impl Default for AgentContextPanelStatus {
         Self {
             last_status: default_status(),
             last_message: String::new(),
+            last_session_id: String::new(),
             last_goal: String::new(),
             last_scope: String::new(),
             last_mode: String::new(),
@@ -95,6 +100,7 @@ impl Default for AgentContextPanelStatus {
             last_manifest_json: String::new(),
             last_resolution_plan_json: String::new(),
             last_codex_preflight_md: String::new(),
+            last_model_input_md: String::new(),
             last_runtime_task_md: String::new(),
             last_review_file: String::new(),
             last_review_client_html: String::new(),
@@ -397,6 +403,7 @@ pub struct AgentContextTaskPreflight {
     pub mode: String,
     pub sources_included: usize,
     pub codex_preflight_md: String,
+    pub model_input_md: String,
     pub context_md: String,
     pub sources_jsonl: String,
     pub manifest_json: String,
@@ -980,6 +987,44 @@ struct AgentContextRuntimeCodexPreflight {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+struct AgentContextRuntimeAgentPreflight {
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    next_message: String,
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    source_scope: String,
+    #[serde(default)]
+    mode: String,
+    #[serde(default)]
+    review_file: String,
+    #[serde(default)]
+    agent_preflight_md_path: String,
+    #[serde(default)]
+    files: AgentContextRuntimeAgentPreflightFiles,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct AgentContextRuntimeAgentPreflightFiles {
+    #[serde(default)]
+    context_md_path: Option<String>,
+    #[serde(default)]
+    sources_jsonl_path: Option<String>,
+    #[serde(default)]
+    model_input_md_path: Option<String>,
+    #[serde(default)]
+    runtime_task_md_path: Option<String>,
+    #[serde(default)]
+    runtime_task_json_path: Option<String>,
+    #[serde(default)]
+    runtime_review_client_html_path: Option<String>,
+    #[serde(default)]
+    runtime_review_launch_md_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
 struct AgentContextRuntimeTaskAgentPreflight {
     #[serde(default)]
     agent_preflight_md_path: String,
@@ -1043,6 +1088,37 @@ pub fn run_agent_context_task_preflight(goal: &str) -> anyhow::Result<AgentConte
     Ok(preflight)
 }
 
+pub fn run_agent_context_model_input_review() -> anyhow::Result<AgentContextTaskPreflight> {
+    let config = load_agent_context_panel_config()?;
+    let previous = load_agent_context_panel_status().unwrap_or_default();
+    let session_id = previous.last_session_id.trim();
+    if session_id.is_empty() {
+        return Err(anyhow!("请先运行任务预检，生成 Doctor runtime session。"));
+    }
+    let output = run_agent_preflight_context_command(&config, session_id)?;
+    if !output.status.success() {
+        let message = command_failure_message(&output);
+        save_agent_context_panel_status(&AgentContextPanelStatus {
+            last_status: "failed".to_string(),
+            last_message: message.clone(),
+            last_session_id: previous.last_session_id.clone(),
+            last_goal: previous.last_goal.clone(),
+            last_scope: config.scope.clone(),
+            last_mode: config.mode.clone(),
+            last_generated_at_ms: now_ms(),
+            ..previous
+        })?;
+        return Err(anyhow!(message));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let runtime: AgentContextRuntimeAgentPreflight = serde_json::from_str(&stdout)
+        .with_context(|| "failed to parse agent-context agent-preflight context output")?;
+    let preflight = agent_preflight_to_task_preflight(runtime, &config, &previous);
+    save_task_preflight_status(&preflight)?;
+    Ok(preflight)
+}
+
 pub fn run_agent_context_panel(goal: &str) -> anyhow::Result<AgentContextPanelState> {
     let config = load_agent_context_panel_config()?;
     let goal = goal.trim();
@@ -1062,7 +1138,14 @@ pub fn run_agent_context_panel(goal: &str) -> anyhow::Result<AgentContextPanelSt
         return Err(anyhow!(message));
     }
 
-    let status = load_runtime_panel_status(&config)?;
+    let previous = load_agent_context_panel_status().unwrap_or_default();
+    let mut status = load_runtime_panel_status(&config)?;
+    if status.last_session_id.is_empty() {
+        status.last_session_id = previous.last_session_id;
+    }
+    if status.last_model_input_md.is_empty() {
+        status.last_model_input_md = previous.last_model_input_md;
+    }
     save_agent_context_panel_status(&status)?;
     Ok(AgentContextPanelState {
         config_path: config_path_string(),
@@ -1234,6 +1317,30 @@ fn run_preflight_command(
         .arg(&config.agent_context_root)
         .arg("--port")
         .arg("8765");
+    command
+        .output()
+        .with_context(|| format!("failed to execute {}", config.agent_context_bin))
+}
+
+fn run_agent_preflight_context_command(
+    config: &AgentContextPanelConfig,
+    session_id: &str,
+) -> anyhow::Result<std::process::Output> {
+    let mut command = Command::new(&config.agent_context_bin);
+    command
+        .arg("agent-preflight")
+        .arg("--out")
+        .arg(&config.agent_context_root)
+        .arg("--session-id")
+        .arg(session_id)
+        .arg("--advance")
+        .arg("context")
+        .arg("--source-scope")
+        .arg(&config.scope)
+        .arg("--mode")
+        .arg(&config.mode)
+        .arg("--limit")
+        .arg("8");
     command
         .output()
         .with_context(|| format!("failed to execute {}", config.agent_context_bin))
@@ -1505,6 +1612,7 @@ fn runtime_status_to_panel_status(
     AgentContextPanelStatus {
         last_status,
         last_message,
+        last_session_id: String::new(),
         last_goal: runtime.goal.unwrap_or_default(),
         last_scope: non_empty_or_default(&runtime.scope, || config.scope.clone()),
         last_mode: non_empty_or_default(&runtime.mode, || config.mode.clone()),
@@ -1513,6 +1621,7 @@ fn runtime_status_to_panel_status(
         last_manifest_json: runtime.last_manifest_json.unwrap_or_default(),
         last_resolution_plan_json: runtime.last_resolution_plan_json.unwrap_or_default(),
         last_codex_preflight_md: runtime.last_codex_preflight_md.unwrap_or_default(),
+        last_model_input_md: String::new(),
         last_runtime_task_md: runtime.last_runtime_task_md.unwrap_or_default(),
         last_review_file: runtime.last_review_file.unwrap_or_default(),
         last_review_client_html: runtime.last_review_client_html.unwrap_or_default(),
@@ -1776,6 +1885,7 @@ fn runtime_preflight_to_task_preflight(
         mode,
         sources_included: runtime.sources_included,
         codex_preflight_md: runtime.preflight_markdown_path,
+        model_input_md: String::new(),
         context_md: runtime.context_md_path.unwrap_or_default(),
         sources_jsonl: runtime.sources_jsonl_path.unwrap_or_default(),
         manifest_json: runtime.manifest_json_path.unwrap_or_default(),
@@ -1793,12 +1903,78 @@ fn runtime_preflight_to_task_preflight(
     }
 }
 
+fn agent_preflight_to_task_preflight(
+    runtime: AgentContextRuntimeAgentPreflight,
+    config: &AgentContextPanelConfig,
+    previous: &AgentContextPanelStatus,
+) -> AgentContextTaskPreflight {
+    let context_md = runtime.files.context_md_path.clone().unwrap_or_default();
+    let sources_jsonl = runtime.files.sources_jsonl_path.clone().unwrap_or_default();
+    let model_input_md = runtime
+        .files
+        .model_input_md_path
+        .clone()
+        .unwrap_or_default();
+    let status = non_empty_or_default(&runtime.status, || "awaiting_context_review".to_string());
+    let message = if model_input_md.trim().is_empty() {
+        non_empty_or_default(&runtime.next_message, || {
+            "Doctor 已推进到上下文审查，但没有返回 model_input.md。".to_string()
+        })
+    } else {
+        "Doctor 已生成 model_input.md，请审查后再发给模型。".to_string()
+    };
+    AgentContextTaskPreflight {
+        status,
+        message,
+        goal: previous.last_goal.clone(),
+        scope: non_empty_or_default(&runtime.source_scope, || config.scope.clone()),
+        mode: non_empty_or_default(&runtime.mode, || config.mode.clone()),
+        sources_included: count_jsonl_rows(&sources_jsonl),
+        codex_preflight_md: runtime.agent_preflight_md_path.clone(),
+        model_input_md: model_input_md.clone(),
+        context_md,
+        sources_jsonl,
+        manifest_json: String::new(),
+        resolution_plan_json: String::new(),
+        session_id: non_empty_or_default(&runtime.session_id, || previous.last_session_id.clone()),
+        runtime_task_md: runtime.files.runtime_task_md_path.unwrap_or_default(),
+        runtime_task_json: runtime.files.runtime_task_json_path.unwrap_or_default(),
+        review_file: non_empty_or_default(&runtime.review_file, || model_input_md),
+        agent_preflight_md: runtime.agent_preflight_md_path,
+        review_launch_md: runtime
+            .files
+            .runtime_review_launch_md_path
+            .unwrap_or_default(),
+        review_client_html: runtime
+            .files
+            .runtime_review_client_html_path
+            .unwrap_or_default(),
+        review_server_url: String::new(),
+        start_server_command: String::new(),
+        open_client_command: String::new(),
+    }
+}
+
 fn normalize_task_preflight_status(status: &str, stage: &str) -> String {
     if status == "awaiting_context_generation" || stage == "clarify_review" {
         "ok".to_string()
     } else {
         status.to_string()
     }
+}
+
+fn count_jsonl_rows(path: &str) -> usize {
+    if path.trim().is_empty() {
+        return 0;
+    }
+    fs::read_to_string(path)
+        .map(|contents| {
+            contents
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 fn task_preflight_message(
@@ -1833,6 +2009,11 @@ fn save_task_preflight_status(preflight: &AgentContextTaskPreflight) -> anyhow::
     save_agent_context_panel_status(&AgentContextPanelStatus {
         last_status: preflight.status.clone(),
         last_message: preflight.message.clone(),
+        last_session_id: if preflight.session_id.is_empty() {
+            previous.last_session_id
+        } else {
+            preflight.session_id.clone()
+        },
         last_goal: preflight.goal.clone(),
         last_scope: preflight.scope.clone(),
         last_mode: preflight.mode.clone(),
@@ -1864,6 +2045,11 @@ fn save_task_preflight_status(preflight: &AgentContextTaskPreflight) -> anyhow::
             preflight.agent_preflight_md.clone()
         } else {
             previous.last_codex_preflight_md
+        },
+        last_model_input_md: if preflight.model_input_md.is_empty() {
+            previous.last_model_input_md
+        } else {
+            preflight.model_input_md.clone()
         },
         last_runtime_task_md: if preflight.runtime_task_md.is_empty() {
             previous.last_runtime_task_md
@@ -2896,5 +3082,58 @@ mod tests {
             preflight.review_client_html,
             "/tmp/doctor-runtime-review-client.html"
         );
+    }
+
+    #[test]
+    fn agent_preflight_context_maps_model_input_review_contract() {
+        let config = AgentContextPanelConfig {
+            auto_context: true,
+            scope: "all".to_string(),
+            mode: "fast".to_string(),
+            agent_context_root: "/tmp/agent-context-system".to_string(),
+            agent_context_bin: "/tmp/agent-context".to_string(),
+        };
+        let previous = AgentContextPanelStatus {
+            last_session_id: "runtime-task-test".to_string(),
+            last_goal: "审查模型输入".to_string(),
+            ..AgentContextPanelStatus::default()
+        };
+        let preflight = agent_preflight_to_task_preflight(
+            AgentContextRuntimeAgentPreflight {
+                status: "awaiting_context_review".to_string(),
+                next_message: "Review model_input.md before any model consumes it.".to_string(),
+                session_id: "runtime-task-test".to_string(),
+                source_scope: "all".to_string(),
+                mode: "fast".to_string(),
+                review_file: "/tmp/pack/model_input.md".to_string(),
+                agent_preflight_md_path: "/tmp/runtime/agent_preflight.md".to_string(),
+                files: AgentContextRuntimeAgentPreflightFiles {
+                    context_md_path: Some("/tmp/pack/context.md".to_string()),
+                    sources_jsonl_path: Some("/tmp/pack/sources.jsonl".to_string()),
+                    model_input_md_path: Some("/tmp/pack/model_input.md".to_string()),
+                    runtime_task_md_path: Some("/tmp/runtime/runtime_task.md".to_string()),
+                    runtime_task_json_path: Some("/tmp/runtime/runtime_task.json".to_string()),
+                    runtime_review_client_html_path: Some(
+                        "/tmp/runtime/doctor-runtime-review-client.html".to_string(),
+                    ),
+                    runtime_review_launch_md_path: Some(
+                        "/tmp/runtime/review_launch.md".to_string(),
+                    ),
+                },
+            },
+            &config,
+            &previous,
+        );
+
+        assert_eq!(preflight.status, "awaiting_context_review");
+        assert_eq!(preflight.goal, "审查模型输入");
+        assert_eq!(preflight.model_input_md, "/tmp/pack/model_input.md");
+        assert_eq!(preflight.review_file, "/tmp/pack/model_input.md");
+        assert_eq!(preflight.context_md, "/tmp/pack/context.md");
+        assert_eq!(
+            preflight.agent_preflight_md,
+            "/tmp/runtime/agent_preflight.md"
+        );
+        assert!(preflight.message.contains("model_input.md"));
     }
 }

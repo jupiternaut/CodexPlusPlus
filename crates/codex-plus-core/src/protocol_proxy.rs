@@ -348,6 +348,16 @@ impl ChatSseToResponsesConverter {
         output.into_bytes()
     }
 
+    pub fn latest_usage_with_model(&self) -> Option<Value> {
+        self.state.latest_usage.as_ref().map(|usage| {
+            let mut usage = usage.clone();
+            if !self.state.model.is_empty() && usage.get("model").is_none() {
+                usage["model"] = Value::String(self.state.model.clone());
+            }
+            usage
+        })
+    }
+
     pub fn fail(&mut self, message: String, error_type: Option<String>) -> Vec<u8> {
         let mut output = String::new();
         self.state.failed_into(&mut output, message, error_type);
