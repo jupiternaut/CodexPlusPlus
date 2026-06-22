@@ -517,10 +517,12 @@ fn injection_script_exposes_agent_context_default_preflight_hook() {
 
     assert!(script.contains("[Codex++ Auto Context]"));
     assert!(script.contains("/agent-context/task-preflight"));
+    assert!(script.contains("/agent-context/model-input-review"));
     assert!(script.contains("codexAgentContextRequestMethods"));
     assert!(script.contains("codexAgentContextExtractGoal"));
     assert!(script.contains("codexAgentContextRequestOverride"));
     assert!(script.contains("codexAgentContextPreflightHint"));
+    assert!(script.contains("codexAgentContextModelInputReviewHint"));
     assert!(script.contains("codexAgentContextAppendHint"));
     assert!(script.contains(
         "Do not answer the original task yet. Ask the user to review and approve the normalized prompt before Doctor generates local context."
@@ -551,6 +553,37 @@ fn injection_script_appends_agent_context_preflight_to_turn_start() {
 
     assert_eq!(result["diagnosticStatus"], "ok");
     assert_eq!(result["diagnosticHasReviewFile"], true);
+}
+
+#[test]
+fn injection_script_advances_agent_context_to_model_input_review() {
+    let result = run_agent_context_injection_harness();
+
+    assert_eq!(
+        result["secondBridgePath"],
+        "/agent-context/model-input-review"
+    );
+    assert_eq!(
+        result["secondBridgePayload"]["sessionId"],
+        "codex-plus-test"
+    );
+
+    let input = result["secondTurnInput"]
+        .as_str()
+        .expect("second turn input should be a string");
+    assert!(input.contains("生成 model_input 上下文"));
+    assert!(input.contains("[Codex++ Auto Context]"));
+    assert!(input.contains("Doctor has generated a reviewable model_input.md"));
+    assert!(input.contains("Model input: /tmp/model_input.md"));
+    assert!(input.contains("Context: /tmp/context.md"));
+    assert!(input.contains("Sources: /tmp/sources.jsonl"));
+    assert!(!input.contains("Review file: /tmp/refined_prompt.md"));
+
+    assert_eq!(
+        result["modelInputDiagnosticStatus"],
+        "awaiting_context_review"
+    );
+    assert_eq!(result["modelInputDiagnosticHasModelInput"], true);
 }
 
 #[test]
@@ -762,6 +795,22 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
         openClientCommand: "open /tmp/doctor-runtime-review-client.html",
       }};
     }}
+    if (path === "/agent-context/model-input-review") {{
+      return {{
+        status: "awaiting_context_review",
+        message: "Doctor 已生成 model_input.md，请审查后再发给模型。",
+        goal: "开源往事如何在番茄爆火，面向的读者是谁",
+        scope: "all",
+        mode: "fast",
+        sourcesIncluded: 8,
+        sessionId: "codex-plus-test",
+        reviewFile: "/tmp/model_input.md",
+        modelInputMd: "/tmp/model_input.md",
+        contextMd: "/tmp/context.md",
+        sourcesJsonl: "/tmp/sources.jsonl",
+        agentPreflightMd: "/tmp/agent_preflight.md",
+      }};
+    }}
     if (path === "/diagnostics/log") return {{ status: "ok" }};
     return {{ status: "failed", message: "unexpected path" }};
   }};
@@ -796,15 +845,30 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
       input: "开源往事如何在番茄爆火，面向的读者是谁",
     }},
   }}));
+  const secondMessage = await Promise.resolve(api.agentContextRequestOverride({{
+    type: "send-cli-request-for-host",
+    method: "turn/start",
+    conversationId: "thread-12345678",
+    params: {{
+      threadId: "thread-12345678",
+      input: "我已审查提示词，生成 model_input 上下文",
+    }},
+  }}));
   const diagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_task_preflight");
+  const modelInputDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_model_input_review");
   process.stdout.write(JSON.stringify({{
     goal: api.agentContextExtractGoal({{ input: "开源往事如何在番茄爆火，面向的读者是谁" }}),
     bridgePath: bridgeCalls[0]?.path || "",
     bridgePayload: bridgeCalls[0]?.payload || {{}},
+    secondBridgePath: bridgeCalls[1]?.path || "",
+    secondBridgePayload: bridgeCalls[1]?.payload || {{}},
     turnInput: message.params.input,
+    secondTurnInput: secondMessage.params.input,
     diagnosticStatus: diagnostic?.detail?.status || "",
     diagnosticSourcesIncluded: diagnostic?.detail?.sourcesIncluded || 0,
     diagnosticHasReviewFile: diagnostic?.detail?.hasReviewFile || false,
+    modelInputDiagnosticStatus: modelInputDiagnostic?.detail?.status || "",
+    modelInputDiagnosticHasModelInput: modelInputDiagnostic?.detail?.hasModelInput || false,
   }}));
 }})().catch((error) => {{
   console.error(error && error.stack ? error.stack : error);

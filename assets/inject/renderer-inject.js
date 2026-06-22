@@ -1188,6 +1188,7 @@
 
   let codexPlusBackendSettings = { providerSyncEnabled: false, enhancementsEnabled: true, launchMode: "patch", codexAppVersion: "" };
   const codexAgentContextPreflightCache = new Map();
+  let codexAgentContextLastPreflight = null;
   const codexPluginLegacyEntryUnlockBeforeVersion = "26.601.2237";
 
   function parseCodexVersionParts(version) {
@@ -2032,6 +2033,50 @@
     ].filter(Boolean).join("\n");
   }
 
+  function codexAgentContextRememberPreflight(preflight) {
+    if (!preflight || typeof preflight !== "object") return;
+    if (!preflight.sessionId || !(preflight.reviewFile || preflight.runtimeTaskMd || preflight.agentPreflightMd)) return;
+    codexAgentContextLastPreflight = {
+      sessionId: String(preflight.sessionId || ""),
+      reviewFile: String(preflight.reviewFile || ""),
+      runtimeTaskMd: String(preflight.runtimeTaskMd || ""),
+      agentPreflightMd: String(preflight.agentPreflightMd || ""),
+      reviewClientHtml: String(preflight.reviewClientHtml || ""),
+      at: Date.now(),
+    };
+  }
+
+  function codexAgentContextIsModelInputApproval(text) {
+    const raw = String(text || "").trim();
+    if (!raw || raw.length > 800) return false;
+    if (!codexAgentContextLastPreflight?.sessionId) return false;
+    if (Date.now() - Number(codexAgentContextLastPreflight.at || 0) > 30 * 60 * 1000) return false;
+    const lower = raw.toLowerCase();
+    const explicitModelInput = lower.includes("model_input") || lower.includes("model input") || raw.includes("模型输入");
+    const doctorContext = lower.includes("doctor") || raw.includes("上下文") || raw.includes("热包") || raw.includes("提示词");
+    const approval = raw.includes("同意") || raw.includes("确认") || raw.includes("批准") || raw.includes("继续") || lower.includes("approve") || lower.includes("accepted");
+    const generate = raw.includes("生成") || raw.includes("构建") || raw.includes("推进") || lower.includes("generate") || lower.includes("build");
+    return explicitModelInput || (doctorContext && (approval || generate));
+  }
+
+  function codexAgentContextModelInputReviewHint(result) {
+    if (!result || typeof result !== "object") return "";
+    const modelInput = result.modelInputMd || result.reviewFile || "";
+    if (!modelInput) return "";
+    return [
+      "",
+      "",
+      codexAgentContextHintMarker,
+      "Doctor has generated a reviewable model_input.md from the approved refined prompt.",
+      "Do not answer the original task yet. Ask the user to review and approve model_input.md before this local context payload is sent to a model.",
+      result.sessionId ? `Runtime session: ${result.sessionId}` : "",
+      `Model input: ${modelInput}`,
+      result.contextMd ? `Context: ${result.contextMd}` : "",
+      result.sourcesJsonl ? `Sources: ${result.sourcesJsonl}` : "",
+      result.agentPreflightMd ? `Agent preflight: ${result.agentPreflightMd}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
   function codexAgentContextAppendHint(value, hint, visited = new WeakSet(), depth = 0) {
     if (!hint || !value || typeof value !== "object" || visited.has(value) || depth > 6) return value;
     visited.add(value);
@@ -2078,6 +2123,7 @@
           hasReviewFile: !!result?.reviewFile,
           hasReviewClient: !!result?.reviewClientHtml,
         });
+        codexAgentContextRememberPreflight(result);
         return result;
       })
       .catch((error) => {
@@ -2093,12 +2139,55 @@
     return promise;
   }
 
+  async function codexAgentContextModelInputReview(method, threadId) {
+    const sessionId = codexAgentContextLastPreflight?.sessionId || "";
+    if (!sessionId) return null;
+    return postJson("/agent-context/model-input-review", { sessionId, method, threadId: threadId || "" })
+      .then((result) => {
+        sendCodexPlusDiagnostic("agent_context_model_input_review", {
+          status: result?.status || "unknown",
+          method,
+          threadId: threadId || "",
+          sessionId,
+          hasModelInput: !!result?.modelInputMd || !!result?.reviewFile,
+          hasContext: !!result?.contextMd,
+        });
+        return result;
+      })
+      .catch((error) => {
+        sendCodexPlusDiagnostic("agent_context_model_input_review_failed", {
+          method,
+          threadId: threadId || "",
+          sessionId,
+          errorName: error?.name || "",
+          errorMessage: error?.message || String(error),
+        });
+        return null;
+      });
+  }
+
   function codexAgentContextRequestOverride(message) {
     const target = codexAgentContextParamsForMessage(message);
     if (!target || !target.params || typeof target.params !== "object") return message;
     const threadId = codexServiceTierThreadIdForRequest(target.method, target.params, message.conversationId);
     const goal = codexAgentContextExtractGoal(target.params);
     if (!goal) return message;
+    if (codexAgentContextIsModelInputApproval(goal)) {
+      return codexAgentContextModelInputReview(target.method, threadId).then((result) => {
+        const hint = codexAgentContextModelInputReviewHint(result);
+        if (!hint) return message;
+        const nextParams = codexAgentContextAppendHint(target.params, hint);
+        if (nextParams === target.params) return message;
+        if (!target.container) return nextParams;
+        if (message.type === "mcp-request" || message.type === "worker-request") {
+          return { ...message, request: { ...message.request, [target.key]: nextParams } };
+        }
+        if (message.type === "thread-prewarm-start") {
+          return { ...message, request: { ...message.request, [target.key]: nextParams } };
+        }
+        return { ...message, [target.key]: nextParams };
+      });
+    }
     return codexAgentContextTaskPreflight(goal, target.method, threadId).then((preflight) => {
       const hint = codexAgentContextPreflightHint(preflight);
       if (!hint) return message;
@@ -4655,6 +4744,7 @@
       agentContextRequestOverride: (message) => codexAgentContextRequestOverride(message),
       agentContextExtractGoal: (value) => codexAgentContextExtractGoal(value),
       agentContextPreflightHint: (preflight) => codexAgentContextPreflightHint(preflight),
+      agentContextModelInputReviewHint: (result) => codexAgentContextModelInputReviewHint(result),
       diagnostics: () => [...(window.__codexPlusServiceTierTestDiagnostics || [])],
       setModelCatalog: (catalog = {}) => {
         codexModelCatalog = {
