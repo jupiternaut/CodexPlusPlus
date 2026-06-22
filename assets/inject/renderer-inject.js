@@ -1189,6 +1189,7 @@
   let codexPlusBackendSettings = { providerSyncEnabled: false, enhancementsEnabled: true, launchMode: "patch", codexAppVersion: "" };
   const codexAgentContextPreflightCache = new Map();
   let codexAgentContextLastPreflight = null;
+  let codexAgentContextLastModelInputReview = null;
   const codexPluginLegacyEntryUnlockBeforeVersion = "26.601.2237";
 
   function parseCodexVersionParts(version) {
@@ -2046,17 +2047,49 @@
     };
   }
 
+  function codexAgentContextRememberModelInputReview(result) {
+    if (!result || typeof result !== "object") return;
+    const modelInput = String(result.modelInputMd || result.reviewFile || "");
+    if (!result.sessionId || !modelInput) return;
+    codexAgentContextLastModelInputReview = {
+      sessionId: String(result.sessionId || ""),
+      modelInputMd: modelInput,
+      contextMd: String(result.contextMd || ""),
+      sourcesJsonl: String(result.sourcesJsonl || ""),
+      reviewFile: String(result.reviewFile || ""),
+      agentPreflightMd: String(result.agentPreflightMd || ""),
+      at: Date.now(),
+    };
+  }
+
+  function codexAgentContextHasRecentModelInputReview() {
+    return !!codexAgentContextLastModelInputReview?.sessionId
+      && Date.now() - Number(codexAgentContextLastModelInputReview.at || 0) <= 30 * 60 * 1000;
+  }
+
   function codexAgentContextIsModelInputApproval(text) {
     const raw = String(text || "").trim();
     if (!raw || raw.length > 800) return false;
     if (!codexAgentContextLastPreflight?.sessionId) return false;
     if (Date.now() - Number(codexAgentContextLastPreflight.at || 0) > 30 * 60 * 1000) return false;
     const lower = raw.toLowerCase();
+    if (codexAgentContextHasRecentModelInputReview() && (lower.includes("answer") || raw.includes("回答"))) return false;
     const explicitModelInput = lower.includes("model_input") || lower.includes("model input") || raw.includes("模型输入");
     const doctorContext = lower.includes("doctor") || raw.includes("上下文") || raw.includes("热包") || raw.includes("提示词");
     const approval = raw.includes("同意") || raw.includes("确认") || raw.includes("批准") || raw.includes("继续") || lower.includes("approve") || lower.includes("accepted");
     const generate = raw.includes("生成") || raw.includes("构建") || raw.includes("推进") || lower.includes("generate") || lower.includes("build");
     return explicitModelInput || (doctorContext && (approval || generate));
+  }
+
+  function codexAgentContextIsAnswerApproval(text) {
+    const raw = String(text || "").trim();
+    if (!raw || raw.length > 800) return false;
+    if (!codexAgentContextHasRecentModelInputReview()) return false;
+    const lower = raw.toLowerCase();
+    if (lower.includes("生成 model_input") || lower.includes("build model_input") || lower.includes("generate model_input")) return false;
+    const approval = raw.includes("同意") || raw.includes("确认") || raw.includes("批准") || raw.includes("继续") || raw.includes("用这个") || lower.includes("approve") || lower.includes("accepted") || lower.includes("use this");
+    const target = lower.includes("model_input") || lower.includes("model input") || lower.includes("context") || lower.includes("answer") || raw.includes("模型输入") || raw.includes("上下文") || raw.includes("回答");
+    return approval && target;
   }
 
   function codexAgentContextModelInputReviewHint(result) {
@@ -2071,6 +2104,28 @@
       "Do not answer the original task yet. Ask the user to review and approve model_input.md before this local context payload is sent to a model.",
       result.sessionId ? `Runtime session: ${result.sessionId}` : "",
       `Model input: ${modelInput}`,
+      result.contextMd ? `Context: ${result.contextMd}` : "",
+      result.sourcesJsonl ? `Sources: ${result.sourcesJsonl}` : "",
+      result.agentPreflightMd ? `Agent preflight: ${result.agentPreflightMd}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  function codexAgentContextAnswerReviewHint(result) {
+    if (!result || typeof result !== "object") return "";
+    const answerPacket = result.answerPacketMd || result.reviewFile || "";
+    if (!answerPacket) return "";
+    return [
+      "",
+      "",
+      codexAgentContextHintMarker,
+      "Doctor context review is approved and answer_packet.md is ready.",
+      "Use only the approved Doctor payload to answer this turn.",
+      "After answering, tell the user the answer must be reviewed before any local execution.",
+      result.sessionId ? `Runtime session: ${result.sessionId}` : "",
+      result.approvedModelInputMd ? `Approved model input: ${result.approvedModelInputMd}` : "",
+      result.agentHandoffMd ? `Agent handoff: ${result.agentHandoffMd}` : "",
+      `Answer packet: ${answerPacket}`,
+      result.answerMd ? `Answer draft: ${result.answerMd}` : "",
       result.contextMd ? `Context: ${result.contextMd}` : "",
       result.sourcesJsonl ? `Sources: ${result.sourcesJsonl}` : "",
       result.agentPreflightMd ? `Agent preflight: ${result.agentPreflightMd}` : "",
@@ -2152,6 +2207,7 @@
           hasModelInput: !!result?.modelInputMd || !!result?.reviewFile,
           hasContext: !!result?.contextMd,
         });
+        codexAgentContextRememberModelInputReview(result);
         return result;
       })
       .catch((error) => {
@@ -2166,41 +2222,69 @@
       });
   }
 
+  async function codexAgentContextAnswerReview(method, threadId, reason) {
+    const sessionId = codexAgentContextLastModelInputReview?.sessionId || "";
+    if (!sessionId) return null;
+    return postJson("/agent-context/answer-review", { sessionId, method, threadId: threadId || "", reason: reason || "approved model_input from live turn" })
+      .then((result) => {
+        sendCodexPlusDiagnostic("agent_context_answer_review", {
+          status: result?.status || "unknown",
+          method,
+          threadId: threadId || "",
+          sessionId,
+          safeToSendModel: !!result?.safeToSendModel,
+          hasAnswerPacket: !!result?.answerPacketMd || !!result?.reviewFile,
+          hasApprovedModelInput: !!result?.approvedModelInputMd,
+        });
+        return result;
+      })
+      .catch((error) => {
+        sendCodexPlusDiagnostic("agent_context_answer_review_failed", {
+          method,
+          threadId: threadId || "",
+          sessionId,
+          errorName: error?.name || "",
+          errorMessage: error?.message || String(error),
+        });
+        return null;
+      });
+  }
+
+  function codexAgentContextMessageWithHint(message, target, hint) {
+    if (!hint) return message;
+    const nextParams = codexAgentContextAppendHint(target.params, hint);
+    if (nextParams === target.params) return message;
+    if (!target.container) return nextParams;
+    if (message.type === "mcp-request" || message.type === "worker-request") {
+      return { ...message, request: { ...message.request, [target.key]: nextParams } };
+    }
+    if (message.type === "thread-prewarm-start") {
+      return { ...message, request: { ...message.request, [target.key]: nextParams } };
+    }
+    return { ...message, [target.key]: nextParams };
+  }
+
   function codexAgentContextRequestOverride(message) {
     const target = codexAgentContextParamsForMessage(message);
     if (!target || !target.params || typeof target.params !== "object") return message;
     const threadId = codexServiceTierThreadIdForRequest(target.method, target.params, message.conversationId);
     const goal = codexAgentContextExtractGoal(target.params);
     if (!goal) return message;
+    if (codexAgentContextIsAnswerApproval(goal)) {
+      return codexAgentContextAnswerReview(target.method, threadId, goal).then((result) => {
+        const hint = codexAgentContextAnswerReviewHint(result);
+        return codexAgentContextMessageWithHint(message, target, hint);
+      });
+    }
     if (codexAgentContextIsModelInputApproval(goal)) {
       return codexAgentContextModelInputReview(target.method, threadId).then((result) => {
         const hint = codexAgentContextModelInputReviewHint(result);
-        if (!hint) return message;
-        const nextParams = codexAgentContextAppendHint(target.params, hint);
-        if (nextParams === target.params) return message;
-        if (!target.container) return nextParams;
-        if (message.type === "mcp-request" || message.type === "worker-request") {
-          return { ...message, request: { ...message.request, [target.key]: nextParams } };
-        }
-        if (message.type === "thread-prewarm-start") {
-          return { ...message, request: { ...message.request, [target.key]: nextParams } };
-        }
-        return { ...message, [target.key]: nextParams };
+        return codexAgentContextMessageWithHint(message, target, hint);
       });
     }
     return codexAgentContextTaskPreflight(goal, target.method, threadId).then((preflight) => {
       const hint = codexAgentContextPreflightHint(preflight);
-      if (!hint) return message;
-      const nextParams = codexAgentContextAppendHint(target.params, hint);
-      if (nextParams === target.params) return message;
-      if (!target.container) return nextParams;
-      if (message.type === "mcp-request" || message.type === "worker-request") {
-        return { ...message, request: { ...message.request, [target.key]: nextParams } };
-      }
-      if (message.type === "thread-prewarm-start") {
-        return { ...message, request: { ...message.request, [target.key]: nextParams } };
-      }
-      return { ...message, [target.key]: nextParams };
+      return codexAgentContextMessageWithHint(message, target, hint);
     });
   }
 
@@ -4590,7 +4674,7 @@
   }
 
   async function postJson(path, payload) {
-    const isAgentContextLongTask = path === "/agent-context/task-preflight" || path === "/agent-context/model-input-review";
+    const isAgentContextLongTask = path === "/agent-context/task-preflight" || path === "/agent-context/model-input-review" || path === "/agent-context/answer-review";
     const canUseHttpHelper = path === "/backend/status" || path === "/backend/repair" || isAgentContextLongTask || path === "/usage/summary" || path === "/cache/recent";
     if (!window.__codexSessionDeleteBridge) {
       if (canUseHttpHelper) {
@@ -4745,6 +4829,7 @@
       agentContextExtractGoal: (value) => codexAgentContextExtractGoal(value),
       agentContextPreflightHint: (preflight) => codexAgentContextPreflightHint(preflight),
       agentContextModelInputReviewHint: (result) => codexAgentContextModelInputReviewHint(result),
+      agentContextAnswerReviewHint: (result) => codexAgentContextAnswerReviewHint(result),
       diagnostics: () => [...(window.__codexPlusServiceTierTestDiagnostics || [])],
       setModelCatalog: (catalog = {}) => {
         codexModelCatalog = {

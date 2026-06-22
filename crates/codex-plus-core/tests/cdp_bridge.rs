@@ -518,11 +518,13 @@ fn injection_script_exposes_agent_context_default_preflight_hook() {
     assert!(script.contains("[Codex++ Auto Context]"));
     assert!(script.contains("/agent-context/task-preflight"));
     assert!(script.contains("/agent-context/model-input-review"));
+    assert!(script.contains("/agent-context/answer-review"));
     assert!(script.contains("codexAgentContextRequestMethods"));
     assert!(script.contains("codexAgentContextExtractGoal"));
     assert!(script.contains("codexAgentContextRequestOverride"));
     assert!(script.contains("codexAgentContextPreflightHint"));
     assert!(script.contains("codexAgentContextModelInputReviewHint"));
+    assert!(script.contains("codexAgentContextAnswerReviewHint"));
     assert!(script.contains("codexAgentContextAppendHint"));
     assert!(script.contains(
         "Do not answer the original task yet. Ask the user to review and approve the normalized prompt before Doctor generates local context."
@@ -584,6 +586,28 @@ fn injection_script_advances_agent_context_to_model_input_review() {
         "awaiting_context_review"
     );
     assert_eq!(result["modelInputDiagnosticHasModelInput"], true);
+}
+
+#[test]
+fn injection_script_advances_agent_context_to_answer_review() {
+    let result = run_agent_context_injection_harness();
+
+    assert_eq!(result["thirdBridgePath"], "/agent-context/answer-review");
+    assert_eq!(result["thirdBridgePayload"]["sessionId"], "codex-plus-test");
+
+    let input = result["thirdTurnInput"]
+        .as_str()
+        .expect("third turn input should be a string");
+    assert!(input.contains("我批准 model_input，用这个上下文回答"));
+    assert!(input.contains("[Codex++ Auto Context]"));
+    assert!(input.contains("Doctor context review is approved and answer_packet.md is ready."));
+    assert!(input.contains("Use only the approved Doctor payload"));
+    assert!(input.contains("Approved model input: /tmp/model_input.md"));
+    assert!(input.contains("Answer packet: /tmp/answer_packet.md"));
+    assert!(!input.contains("Model input review before any model consumes it"));
+
+    assert_eq!(result["answerDiagnosticStatus"], "awaiting_answer_output");
+    assert_eq!(result["answerDiagnosticHasAnswerPacket"], true);
 }
 
 #[test]
@@ -811,6 +835,22 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
         agentPreflightMd: "/tmp/agent_preflight.md",
       }};
     }}
+    if (path === "/agent-context/answer-review") {{
+      return {{
+        status: "awaiting_answer_output",
+        message: "Use answer_packet.md with a model or local answer command, then review the answer.",
+        sessionId: "codex-plus-test",
+        safeToSendModel: true,
+        approvedModelInputMd: "/tmp/model_input.md",
+        agentHandoffMd: "/tmp/agent_handoff.md",
+        answerPacketMd: "/tmp/answer_packet.md",
+        answerMd: "/tmp/answer.md",
+        contextMd: "/tmp/context.md",
+        sourcesJsonl: "/tmp/sources.jsonl",
+        reviewFile: "/tmp/answer_packet.md",
+        agentPreflightMd: "/tmp/agent_preflight.md",
+      }};
+    }}
     if (path === "/diagnostics/log") return {{ status: "ok" }};
     return {{ status: "failed", message: "unexpected path" }};
   }};
@@ -854,22 +894,37 @@ fn run_agent_context_injection_harness() -> serde_json::Value {
       input: "我已审查提示词，生成 model_input 上下文",
     }},
   }}));
+  const thirdMessage = await Promise.resolve(api.agentContextRequestOverride({{
+    type: "send-cli-request-for-host",
+    method: "turn/start",
+    conversationId: "thread-12345678",
+    params: {{
+      threadId: "thread-12345678",
+      input: "我批准 model_input，用这个上下文回答",
+    }},
+  }}));
   const diagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_task_preflight");
   const modelInputDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_model_input_review");
+  const answerDiagnostic = api.diagnostics().find((entry) => entry.event === "agent_context_answer_review");
   process.stdout.write(JSON.stringify({{
     goal: api.agentContextExtractGoal({{ input: "开源往事如何在番茄爆火，面向的读者是谁" }}),
     bridgePath: bridgeCalls[0]?.path || "",
     bridgePayload: bridgeCalls[0]?.payload || {{}},
     secondBridgePath: bridgeCalls[1]?.path || "",
     secondBridgePayload: bridgeCalls[1]?.payload || {{}},
-    turnInput: message.params.input,
-    secondTurnInput: secondMessage.params.input,
-    diagnosticStatus: diagnostic?.detail?.status || "",
-    diagnosticSourcesIncluded: diagnostic?.detail?.sourcesIncluded || 0,
-    diagnosticHasReviewFile: diagnostic?.detail?.hasReviewFile || false,
-    modelInputDiagnosticStatus: modelInputDiagnostic?.detail?.status || "",
-    modelInputDiagnosticHasModelInput: modelInputDiagnostic?.detail?.hasModelInput || false,
-  }}));
+	    thirdBridgePath: bridgeCalls[2]?.path || "",
+	    thirdBridgePayload: bridgeCalls[2]?.payload || {{}},
+	    turnInput: message.params.input,
+	    secondTurnInput: secondMessage.params.input,
+	    thirdTurnInput: thirdMessage.params.input,
+	    diagnosticStatus: diagnostic?.detail?.status || "",
+	    diagnosticSourcesIncluded: diagnostic?.detail?.sourcesIncluded || 0,
+	    diagnosticHasReviewFile: diagnostic?.detail?.hasReviewFile || false,
+	    modelInputDiagnosticStatus: modelInputDiagnostic?.detail?.status || "",
+	    modelInputDiagnosticHasModelInput: modelInputDiagnostic?.detail?.hasModelInput || false,
+	    answerDiagnosticStatus: answerDiagnostic?.detail?.status || "",
+	    answerDiagnosticHasAnswerPacket: answerDiagnostic?.detail?.hasAnswerPacket || false,
+	  }}));
 }})().catch((error) => {{
   console.error(error && error.stack ? error.stack : error);
   process.exit(1);

@@ -671,6 +671,19 @@ impl BridgeRuntimeService for LauncherRuntimeService {
         serde_json::to_value(preflight).map_err(Into::into)
     }
 
+    async fn agent_context_model_input_review(&self, _payload: Value) -> anyhow::Result<Value> {
+        let preflight = codex_plus_core::agent_context::run_agent_context_model_input_review()?;
+        serde_json::to_value(preflight).map_err(Into::into)
+    }
+
+    async fn agent_context_answer_review(&self, payload: Value) -> anyhow::Result<Value> {
+        let reason = payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("approved from Codex++ launcher");
+        codex_plus_core::agent_context::run_agent_context_answer_review_prepare(reason)
+    }
+
     async fn usage_summary(&self) -> anyhow::Result<Value> {
         codex_plus_core::routes::openusage_summary().await
     }

@@ -40,6 +40,10 @@ async fn bridge_routes_cover_all_current_paths() {
             json!({"goal": "研究本地推荐系统"}),
         ),
         ("/agent-context/model-input-review", json!({})),
+        (
+            "/agent-context/answer-review",
+            json!({"reason": "approved from test"}),
+        ),
         ("/usage/summary", json!({})),
         ("/cache/recent", json!({"limit": 12})),
         ("/ads", json!({})),
@@ -1158,6 +1162,24 @@ impl BridgeRuntimeService for FakeRuntime {
             "reviewServerUrl": "",
             "startServerCommand": "",
             "openClientCommand": ""
+        }))
+    }
+
+    async fn agent_context_answer_review(&self, _payload: Value) -> anyhow::Result<Value> {
+        Ok(json!({
+            "status": "awaiting_answer_output",
+            "message": "Use answer_packet.md with a model or local answer command, then review the answer.",
+            "sessionId": "runtime-task-test",
+            "safeToSendModel": true,
+            "approvedModelInputMd": "/tmp/model_input.md",
+            "agentHandoffMd": "/tmp/agent_handoff.md",
+            "answerPacketMd": "/tmp/answer_packet.md",
+            "answerMd": "/tmp/answer.md",
+            "contextMd": "/tmp/context.md",
+            "sourcesJsonl": "/tmp/sources.jsonl",
+            "reviewFile": "/tmp/answer_packet.md",
+            "agentPreflightMd": "/tmp/agent_preflight.md",
+            "nextCommands": []
         }))
     }
 

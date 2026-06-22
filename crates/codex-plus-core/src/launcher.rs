@@ -867,6 +867,17 @@ async fn handle_helper_connection(
             } else {
                 agent_context_model_input_review_response()
             }
+        } else if path == "/agent-context/answer-review" && matches!(method, "POST" | "OPTIONS") {
+            if method == "OPTIONS" {
+                (
+                    "200 OK".to_string(),
+                    Vec::new(),
+                    "application/json; charset=utf-8".to_string(),
+                    "helper.agent_context_answer_review_options",
+                )
+            } else {
+                agent_context_answer_review_response(request_body)
+            }
         } else if path == "/usage/summary" && matches!(method, "GET" | "POST" | "OPTIONS") {
             if method == "OPTIONS" {
                 (
@@ -1017,6 +1028,29 @@ fn agent_context_model_input_review_response() -> (String, Vec<u8>, String, &'st
         serde_json::to_vec(&body).unwrap_or_default(),
         "application/json; charset=utf-8".to_string(),
         "helper.agent_context_model_input_review",
+    )
+}
+
+fn agent_context_answer_review_response(
+    request_body: &str,
+) -> (String, Vec<u8>, String, &'static str) {
+    let payload = serde_json::from_str::<serde_json::Value>(request_body).unwrap_or_default();
+    let reason = payload
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("approved from Codex++ helper");
+    let body = match crate::agent_context::run_agent_context_answer_review_prepare(reason) {
+        Ok(result) => result,
+        Err(error) => serde_json::json!({
+            "status": "failed",
+            "message": error.to_string()
+        }),
+    };
+    (
+        "200 OK".to_string(),
+        serde_json::to_vec(&body).unwrap_or_default(),
+        "application/json; charset=utf-8".to_string(),
+        "helper.agent_context_answer_review",
     )
 }
 

@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -1119,6 +1120,72 @@ pub fn run_agent_context_model_input_review() -> anyhow::Result<AgentContextTask
     Ok(preflight)
 }
 
+pub fn run_agent_context_answer_review_prepare(reason: &str) -> anyhow::Result<Value> {
+    let config = load_agent_context_panel_config()?;
+    let previous = load_agent_context_panel_status().unwrap_or_default();
+    let session_id = previous.last_session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err(anyhow!("请先生成并审查 Doctor model_input.md。"));
+    }
+    let reason = if reason.trim().is_empty() {
+        "approved from Codex++ live task flow"
+    } else {
+        reason.trim()
+    };
+    let approve_output =
+        run_context_review_decision_command(&config, &session_id, "approve", reason)?;
+    if !approve_output.status.success() {
+        let message = command_failure_message(&approve_output);
+        save_agent_context_panel_status(&AgentContextPanelStatus {
+            last_status: "failed".to_string(),
+            last_message: message.clone(),
+            last_session_id: previous.last_session_id.clone(),
+            last_goal: previous.last_goal.clone(),
+            last_scope: config.scope.clone(),
+            last_mode: config.mode.clone(),
+            last_generated_at_ms: now_ms(),
+            ..previous
+        })?;
+        return Err(anyhow!(message));
+    }
+
+    let answer_output = run_agent_preflight_answer_command(&config, &session_id, reason)?;
+    if !answer_output.status.success() {
+        let message = command_failure_message(&answer_output);
+        save_agent_context_panel_status(&AgentContextPanelStatus {
+            last_status: "failed".to_string(),
+            last_message: message.clone(),
+            last_session_id: previous.last_session_id.clone(),
+            last_goal: previous.last_goal.clone(),
+            last_scope: config.scope.clone(),
+            last_mode: config.mode.clone(),
+            last_generated_at_ms: now_ms(),
+            ..previous
+        })?;
+        return Err(anyhow!(message));
+    }
+
+    let stdout = String::from_utf8_lossy(&answer_output.stdout);
+    let raw: Value = serde_json::from_str(&stdout)
+        .with_context(|| "failed to parse agent-context agent-preflight answer output")?;
+    let result = answer_preflight_to_bridge_value(raw);
+    save_agent_context_panel_status(&AgentContextPanelStatus {
+        last_status: string_at(&result, "/status", "awaiting_answer_output"),
+        last_message: string_at(
+            &result,
+            "/message",
+            "Doctor 已批准 model_input.md，并生成 answer_packet.md。",
+        ),
+        last_session_id: previous.last_session_id.clone(),
+        last_goal: previous.last_goal.clone(),
+        last_scope: config.scope.clone(),
+        last_mode: config.mode.clone(),
+        last_generated_at_ms: now_ms(),
+        ..previous
+    })?;
+    Ok(result)
+}
+
 pub fn run_agent_context_panel(goal: &str) -> anyhow::Result<AgentContextPanelState> {
     let config = load_agent_context_panel_config()?;
     let goal = goal.trim();
@@ -1341,6 +1408,49 @@ fn run_agent_preflight_context_command(
         .arg(&config.mode)
         .arg("--limit")
         .arg("8");
+    command
+        .output()
+        .with_context(|| format!("failed to execute {}", config.agent_context_bin))
+}
+
+fn run_context_review_decision_command(
+    config: &AgentContextPanelConfig,
+    session_id: &str,
+    action: &str,
+    reason: &str,
+) -> anyhow::Result<std::process::Output> {
+    let mut command = Command::new(&config.agent_context_bin);
+    command
+        .arg("context-review")
+        .arg("--out")
+        .arg(&config.agent_context_root)
+        .arg("--session-id")
+        .arg(session_id)
+        .arg("--action")
+        .arg(action)
+        .arg("--reason")
+        .arg(reason);
+    command
+        .output()
+        .with_context(|| format!("failed to execute {}", config.agent_context_bin))
+}
+
+fn run_agent_preflight_answer_command(
+    config: &AgentContextPanelConfig,
+    session_id: &str,
+    reason: &str,
+) -> anyhow::Result<std::process::Output> {
+    let mut command = Command::new(&config.agent_context_bin);
+    command
+        .arg("agent-preflight")
+        .arg("--out")
+        .arg(&config.agent_context_root)
+        .arg("--session-id")
+        .arg(session_id)
+        .arg("--advance")
+        .arg("answer")
+        .arg("--reason")
+        .arg(reason);
     command
         .output()
         .with_context(|| format!("failed to execute {}", config.agent_context_bin))
@@ -1953,6 +2063,74 @@ fn agent_preflight_to_task_preflight(
         start_server_command: String::new(),
         open_client_command: String::new(),
     }
+}
+
+fn answer_preflight_to_bridge_value(raw: Value) -> Value {
+    let status = string_at(&raw, "/status", "");
+    let session_id = string_at(&raw, "/session_id", "");
+    let null = Value::Null;
+    let contract = raw.get("client_contract").unwrap_or(&null);
+    let files = raw.get("files").unwrap_or(&null);
+    let handoff = raw.get("agent_handoff").unwrap_or(&null);
+    let action = raw.get("action_result").unwrap_or(&null);
+    let approved_model_input = first_non_empty(&[
+        string_at(contract, "/approved_model_input_md_path", ""),
+        string_at(files, "/model_input_md_path", ""),
+        string_at(handoff, "/model_input_md_path", ""),
+    ]);
+    let agent_handoff = first_non_empty(&[
+        string_at(contract, "/agent_handoff_md_path", ""),
+        string_at(files, "/agent_handoff_md_path", ""),
+        string_at(handoff, "/agent_handoff_md_path", ""),
+    ]);
+    let answer_packet = first_non_empty(&[
+        string_at(contract, "/answer_packet_md_path", ""),
+        string_at(files, "/answer_packet_md_path", ""),
+        string_at(action, "/answer_packet_md_path", ""),
+        string_at(handoff, "/answer_packet_md_path", ""),
+    ]);
+    let answer_md = first_non_empty(&[
+        string_at(contract, "/answer_md_path", ""),
+        string_at(files, "/answer_md_path", ""),
+        string_at(action, "/answer_md_path", ""),
+    ]);
+    let message = first_non_empty(&[
+        string_at(&raw, "/next_message", ""),
+        string_at(contract, "/instruction", ""),
+        "Use answer_packet.md with the approved Doctor context, then record and review the answer."
+            .to_string(),
+    ]);
+    json!({
+        "status": status,
+        "message": message,
+        "sessionId": session_id,
+        "safeToSendModel": contract.get("safe_to_send_model").and_then(Value::as_bool).unwrap_or(false),
+        "approvedModelInputMd": approved_model_input,
+        "agentHandoffMd": agent_handoff,
+        "answerPacketMd": answer_packet,
+        "answerMd": answer_md,
+        "contextMd": string_at(files, "/context_md_path", ""),
+        "sourcesJsonl": string_at(files, "/sources_jsonl_path", ""),
+        "reviewFile": string_at(&raw, "/review_file", ""),
+        "agentPreflightMd": string_at(&raw, "/agent_preflight_md_path", ""),
+        "nextCommands": raw.get("next_commands").cloned().unwrap_or_else(|| json!([])),
+    })
+}
+
+fn first_non_empty(values: &[String]) -> String {
+    values
+        .iter()
+        .find(|value| !value.trim().is_empty())
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn string_at(value: &Value, pointer: &str, fallback: &str) -> String {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 fn normalize_task_preflight_status(status: &str, stage: &str) -> String {
@@ -3135,5 +3313,49 @@ mod tests {
             "/tmp/runtime/agent_preflight.md"
         );
         assert!(preflight.message.contains("model_input.md"));
+    }
+
+    #[test]
+    fn agent_preflight_answer_maps_answer_review_bridge_contract() {
+        let bridge = answer_preflight_to_bridge_value(json!({
+            "status": "awaiting_answer_output",
+            "next_message": "Use answer_packet.md with a model or local answer command, then review the answer.",
+            "session_id": "runtime-task-test",
+            "review_file": "/tmp/pack/answer_packet.md",
+            "agent_preflight_md_path": "/tmp/runtime/agent_preflight.md",
+            "client_contract": {
+                "safe_to_send_model": true,
+                "approved_model_input_md_path": "/tmp/pack/model_input.md",
+                "agent_handoff_md_path": "/tmp/pack/agent_handoff.md",
+                "answer_packet_md_path": "/tmp/pack/answer_packet.md",
+                "answer_md_path": "/tmp/pack/answer.md"
+            },
+            "files": {
+                "context_md_path": "/tmp/pack/context.md",
+                "sources_jsonl_path": "/tmp/pack/sources.jsonl"
+            },
+            "next_commands": ["agent-context answer-review --action approve"]
+        }));
+
+        assert_eq!(bridge["status"], "awaiting_answer_output");
+        assert_eq!(bridge["sessionId"], "runtime-task-test");
+        assert_eq!(bridge["safeToSendModel"], true);
+        assert_eq!(bridge["approvedModelInputMd"], "/tmp/pack/model_input.md");
+        assert_eq!(bridge["agentHandoffMd"], "/tmp/pack/agent_handoff.md");
+        assert_eq!(bridge["answerPacketMd"], "/tmp/pack/answer_packet.md");
+        assert_eq!(bridge["answerMd"], "/tmp/pack/answer.md");
+        assert_eq!(bridge["contextMd"], "/tmp/pack/context.md");
+        assert_eq!(bridge["sourcesJsonl"], "/tmp/pack/sources.jsonl");
+        assert_eq!(bridge["reviewFile"], "/tmp/pack/answer_packet.md");
+        assert_eq!(
+            bridge["agentPreflightMd"],
+            "/tmp/runtime/agent_preflight.md"
+        );
+        assert!(
+            bridge["message"]
+                .as_str()
+                .unwrap()
+                .contains("answer_packet.md")
+        );
     }
 }
